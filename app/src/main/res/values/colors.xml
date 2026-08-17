@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="lists_light_surface">#FFF8F6</color>
+    <color name="lists_dark_surface">#1A1110</color>
+    <color name="lists_primary">#A03E28</color>
+</resources>
