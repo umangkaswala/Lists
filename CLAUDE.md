@@ -42,6 +42,27 @@ trade-off decisions rather than assuming.
 This is the mechanism that makes fresh sessions cheap: a new session reads a
 couple of short files instead of replaying a long chat history.
 
+## Agents & tools for this project
+
+These are built-in to Claude Code already — nothing to install, just a
+policy for when to reach for each one on this project specifically:
+
+- **`/code-review` skill** — standing step 4 of the per-phase workflow
+  above. Always run it on the diff before committing, every phase.
+- **Plan agent** (via the Agent tool) — use before starting the genuinely
+  novel/risky phases: **5** (exact alarms), **7** (geofencing), **10/11**
+  (widgets). These are the phases most likely to hit a non-obvious Android
+  platform gotcha, so it's worth pressure-testing the approach before
+  writing code. Skip it for routine phases (2, 4, 6, 8, 9) — they're
+  already well-specified in PLAN.md and don't need a re-plan.
+- **Explore agent** (via the Agent tool) — optional, for a broad "how is X
+  wired across the codebase" audit if a question spans many files. Not
+  needed for the normal flow of implementing one phase at a time.
+
+Default to **not** spawning an agent otherwise — for a linear, sequential,
+already-planned project like this one, the context-handoff cost usually
+outweighs the benefit. Implement and self-verify directly, as in Phases 0–1.
+
 ## Key decisions already made (don't re-litigate these)
 
 - **Local-only v1**: no accounts, no backend, no real sync. "Shared with" /
