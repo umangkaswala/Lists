@@ -68,7 +68,7 @@ Not yet manually verified: dragging a list row to reorder it (create/delete
 were thoroughly tested; the drag gesture itself wasn't exercised through
 automation — worth a manual check next time the Lists screen is open).
 
-## Phase 2 — Capture create/edit + Capture-When — ✅ DONE (2026-08-17, commit pending)
+## Phase 2 — Capture create/edit + Capture-When — ✅ DONE (2026-08-17, commit `44387b6`)
 
 Built:
 - **Capture bottom sheet** (`capture/CaptureSheet.kt`, `CaptureViewModel.kt`,
