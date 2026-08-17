@@ -2,11 +2,13 @@ package com.stackpointer.lists.capture
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import com.stackpointer.lists.parser.formatDueChip
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 data class QuickTimePreset(val label: String, val epochMillis: Long)
 
@@ -35,14 +37,25 @@ fun rememberQuickTimePresets(): List<QuickTimePreset> {
     }
 }
 
+/**
+ * Chip text for a due date the app already holds as epoch millis.
+ *
+ * Defers to [formatDueChip] — the design's own "Tue, 19 Aug, 7:00 pm" wording —
+ * for everything except today and tomorrow, where a relative word is clearer
+ * than a date. Kept separate from [formatDueChip] rather than folded into it
+ * because that function is pure (no dependency on "now") and its tests rely on
+ * staying that way.
+ */
 fun formatDueLabel(epochMillis: Long, isAllDay: Boolean): String {
     val zone = ZoneId.systemDefault()
     val dateTime = Instant.ofEpochMilli(epochMillis).atZone(zone)
     val today = LocalDate.now(zone)
-    val datePart = when (dateTime.toLocalDate()) {
+    val relativeDate = when (dateTime.toLocalDate()) {
         today -> "Today"
         today.plusDays(1) -> "Tomorrow"
-        else -> dateTime.format(DateTimeFormatter.ofPattern("MMM d"))
+        else -> return formatDueChip(dateTime, isAllDay)
     }
-    return if (isAllDay) datePart else "$datePart · ${dateTime.format(DateTimeFormatter.ofPattern("h:mm a"))}"
+    if (isAllDay) return relativeDate
+    val time = dateTime.format(DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)).lowercase(Locale.ENGLISH)
+    return "$relativeDate, $time"
 }

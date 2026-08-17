@@ -122,7 +122,8 @@ class HomeViewModel(
             metaText = meta,
             isOverdue = dueAt != null && Instant.ofEpochMilli(dueAt) < now,
             isCompleted = isCompleted,
-            isImportant = isImportant
+            isImportant = isImportant,
+            repeats = repeatRule != null
         )
     }
 

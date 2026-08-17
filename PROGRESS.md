@@ -4,7 +4,7 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phase 2 complete and pushed. Start Phase 3 next.**
+**Current status: Phase 3 complete and pushed. Start Phase 4 next.**
 
 **Process note (2026-08-17):** from Phase 2 onward, every phase gets a
 `/code-review` pass on the diff after self-verification and before
@@ -138,7 +138,112 @@ phase's scope contained, but a real date/time picker may be worth pulling
 forward if presets feel too limiting in practice. Flagging for the user
 rather than silently deciding it's fine.
 
-## Phases 3–12 — ⬜ NOT STARTED
+## Phase 3 — Parser + RRULE engine + Custom Repeat + widget spike — ✅ DONE (2026-08-17)
+
+First phase where work was **split across parallel Sonnet subagents** (at the
+user's request) rather than written start-to-finish in the main session. What
+that looked like: I fixed the shared `RRule` data contract first, then handed
+out three independent, individually-testable pieces — the recurrence engine,
+the text parser, and the Glance widget spike — and built the Repeat editor and
+all the app wiring myself while they ran. Notes on how that went at the bottom.
+
+Built:
+- **`recurrence/`** — an RFC 5545 subset engine: `RRule` (model +
+  serialize/parse, deliberately narrow — no BYSETPOS/BYWEEKNO/positional
+  BYDAY), `RRuleExpander` (`occurrencesFrom`, `nextAfter`), `RRuleText`
+  (`rruleSummary` for the Repeat banner and Detail row, `rruleShortLabel` for
+  the Capture chip). **49 unit tests**, including the RFC "skip don't clamp"
+  month-end rule (monthly from 31 Jan → 31 Mar, never 28 Feb), leap-day yearly,
+  DST stability across the spring-forward date, and UNTIL/COUNT boundaries.
+- **`parser/`** — `CaptureParser.parse(text, now)`, pure on-device string/regex
+  work, no network or ML. Handles dates (today/tonight/tomorrow/weekday
+  names/`on 25 Dec`/`in 3 days`…), times (`7pm`, `19:30`, noon, morning…) and
+  repeats (`every Tuesday`, `every weekday`, `every other week`, `every 15th`…),
+  longest-match-wins with word-boundary matching, and returns a `cleanedTitle`
+  with the recognised words stripped. **26 unit tests**, including negatives
+  ("Satisfied" must not parse `sat`, "market" must not parse `mar`).
+  `now` is injected, never read from the clock inside the parser, so the tests
+  are deterministic.
+- **`repeat/RepeatEditor.kt`** — design screen S10: summary banner, frequency
+  segments, "every N weeks" stepper, day-of-week toggles, and Never / On a date
+  (real M3 date picker) / After N times endings, plus a "Don't repeat" escape.
+  Written as a **value-in/value-out composable**, not a screen with its own
+  ViewModel or nav route, so it can move from "sub-editor inside the Capture
+  sheet" to "full-screen nav destination" later at no cost.
+- **`widgets/HelloWidget`** — the deliberately tiny Glance smoke test. Its whole
+  job was to prove the widget toolchain (Glance 1.1.1, manifest receiver,
+  `res/xml` provider metadata, Compose interop) works *now* rather than
+  discovering a problem in Phase 10/11. It compiles and is wired up.
+- **Wiring**: parsed chips + the design's "Read from what you typed" hint in
+  Capture; Repeat reachable from both the chip and the When editor; repeat
+  shown on Detail and as a glyph on Home cards; `repeatRule` + a new
+  `seriesStartAt` column persisted; a repeating "Bins out" sample seeded.
+- **Completing a repeating reminder rolls it forward** to its next occurrence
+  instead of striking it off, skipping every occurrence already missed, and
+  only completes for real once the series ends.
+
+Verified end-to-end on the `Pixel_9` emulator (not just compiled): typed the
+design's own example "Bins out every Tuesday at 7pm" and watched it produce the
+two chips the design shows; opened Repeat from the chip and built "every 2
+weeks on Tuesday and Friday" (banner text matched the design's wording);
+saved it; confirmed the reminder was stored with the date words stripped from
+its title; **completed it and confirmed it moved from Tue 18 Aug to Fri 21 Aug**
+— the correct next occurrence, which is the single most important behaviour in
+this phase. Also checked "Standup every weekday at 9:30" (typed at 10:19am,
+correctly landed on *tomorrow* 9:30, not today) and the delete-the-date-word
+case. 75 unit tests pass on a clean build; no crashes in logcat throughout.
+
+Bug found by my own testing before the review: bumping the Room schema version
+wiped the sample data and never put it back, because destructive migration
+doesn't call `onCreate`. Fixed; now in CLAUDE.md's gotchas.
+
+**`/code-review` found nine issues, all real, all fixed before committing.**
+The ones worth remembering:
+1. Picking a repeat with no due date silently dropped the rule on save. Now the
+   first occurrence is derived from the rule instead.
+2. Completing a long-overdue repeat advanced it by exactly one occurrence, so a
+   month-neglected weekly reminder needed four taps to stop being overdue — and
+   the "moved to the next occurrence" message was a lie. Now it skips to the
+   next *future* occurrence.
+3. Deleting the date word from "Buy milk tomorrow" left the due-date chip
+   behind, so the reminder still saved with a date the text no longer mentioned.
+4. `RRuleExpander`'s infinite-loop guard counted only *yielded* dates, so the
+   one case it existed for (a rule whose target date never exists, e.g.
+   `BYMONTHDAY=31` pinned to February) still looped forever. Not reachable from
+   today's UI, but Phase 5 will call this from a background worker.
+5. The parser could create a repeating reminder already overdue at the moment of
+   creation ("Gym every other week" typed in the afternoon → due today 09:00).
+6. Opening Repeat from the typing-view chip stranded the user on the When
+   screen afterwards; Detail's Repeat row crushed its label to one character per
+   line once the value got long (both now fixed — the second is in CLAUDE.md).
+Findings 4 and 5 were sent back to the subagents that owned those files, which
+worked well: they still had full context and fixed them with tests.
+
+**Judgment calls worth flagging (mine, not pre-approved in PLAN.md):**
+- **Recognised date/repeat words are stripped from the saved title** — "Bins out
+  every Tuesday at 7pm" saves as "Bins out". The design shows the raw text
+  staying in the field with chips below it, and is silent on what gets stored.
+  Stripping matches Samsung's behaviour and reads better in a list, but it *is*
+  the app quietly editing what you typed. Easy to reverse if disliked.
+- **Repeat is a sub-editor inside the Capture sheet**, not the standalone
+  full screen the design draws. The sheet lives in its own window, so
+  navigating away would destroy the in-progress capture. The editor itself is
+  written to be movable, so this is reversible.
+- `every weekday` / `every weekend` are summarised with those words rather than
+  listing five day names, which wrapped the chip onto two lines.
+- The Phase 2 gap (no full date/time picker in the When editor, quick-time
+  presets only) is **still open** — a real date picker exists now, but only
+  inside the Repeat editor's "On a date" option.
+
+**Note on the parallel-subagent experiment:** it worked, and the two engine
+pieces came back with genuinely good test suites. Two costs worth knowing:
+concurrent Gradle runs against one project directory race on `build/` and
+produce confusing phantom compile errors (now in CLAUDE.md), and I had to fix
+the shared data contract up front so the workers couldn't disagree about it.
+Worth repeating for phases with several independent, testable pieces; not worth
+it for a phase that's one connected slab of UI.
+
+## Phases 4–12 — ⬜ NOT STARTED
 
 See PLAN.md for full descriptions of each.
 

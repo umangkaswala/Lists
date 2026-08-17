@@ -3,6 +3,8 @@ package com.stackpointer.lists.capture
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -19,6 +21,8 @@ import androidx.compose.material.icons.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +44,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.stackpointer.lists.di.currentAppContainer
+import com.stackpointer.lists.recurrence.rruleShortLabel
+import com.stackpointer.lists.repeat.RepeatEditor
 import kotlinx.coroutines.launch
 
 @Composable
@@ -98,6 +104,8 @@ fun CaptureSheetContent(
                     onTitleChange = viewModel::updateTitle,
                     onOpenWhen = viewModel::openWhen,
                     onClearDue = viewModel::clearDue,
+                    onOpenRepeat = viewModel::openRepeat,
+                    onClearRepeat = viewModel::clearRepeat,
                     onStub = ::showStub,
                     onSend = viewModel::save
                 )
@@ -106,7 +114,14 @@ fun CaptureSheetContent(
                     onBack = viewModel::collapseToTyping,
                     onAllDayChange = viewModel::setAllDay,
                     onDueAtChange = viewModel::setDueAt,
+                    onOpenRepeat = viewModel::openRepeat,
                     onStub = ::showStub
+                )
+                CaptureMode.REPEAT -> RepeatEditor(
+                    initial = state.repeat,
+                    startDate = state.repeatAnchorDate,
+                    onCancel = viewModel::closeRepeat,
+                    onSave = viewModel::setRepeat
                 )
             }
         }
@@ -115,12 +130,15 @@ fun CaptureSheetContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TypingContent(
     state: CaptureUiState,
     onTitleChange: (String) -> Unit,
     onOpenWhen: () -> Unit,
     onClearDue: () -> Unit,
+    onOpenRepeat: () -> Unit,
+    onClearRepeat: () -> Unit,
     onStub: (String) -> Unit,
     onSend: () -> Unit
 ) {
@@ -139,9 +157,43 @@ private fun TypingContent(
             modifier = Modifier.fillMaxWidth()
         )
 
-        if (state.dueAt != null) {
+        val dueAt = state.dueAt
+        val repeat = state.repeat
+        if (dueAt != null || repeat != null) {
             Spacer(Modifier.height(12.dp))
-            DueChip(dueAt = state.dueAt, isAllDay = state.isAllDay, onClick = onOpenWhen, onClear = onClearDue)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (dueAt != null) {
+                    CaptureChip(
+                        icon = Icons.Rounded.Schedule,
+                        label = formatDueLabel(dueAt, state.isAllDay),
+                        clearDescription = "Clear due date",
+                        onClick = onOpenWhen,
+                        onClear = onClearDue
+                    )
+                }
+                if (repeat != null) {
+                    CaptureChip(
+                        icon = Icons.Rounded.Repeat,
+                        label = rruleShortLabel(repeat, state.repeatAnchorDate),
+                        clearDescription = "Clear repeat",
+                        onClick = onOpenRepeat,
+                        onClear = onClearRepeat
+                    )
+                }
+            }
+        }
+
+        if (state.parsedFromText) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "Read from what you typed · tap a chip to change it",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
 
         Spacer(Modifier.height(16.dp))
@@ -169,16 +221,28 @@ private fun TypingContent(
 }
 
 @Composable
-private fun DueChip(dueAt: Long, isAllDay: Boolean, onClick: () -> Unit, onClear: () -> Unit) {
+private fun CaptureChip(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    clearDescription: String,
+    onClick: () -> Unit,
+    onClear: () -> Unit
+) {
     Surface(
         onClick = onClick,
         color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
         shape = RoundedCornerShape(8.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
-            Text(text = formatDueLabel(dueAt, isAllDay), style = MaterialTheme.typography.labelLarge)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 8.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(text = label, style = MaterialTheme.typography.labelLarge)
             IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
-                Icon(Icons.Rounded.Close, contentDescription = "Clear due date", modifier = Modifier.size(16.dp))
+                Icon(Icons.Rounded.Close, contentDescription = clearDescription, modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -210,6 +274,7 @@ private fun WhenContent(
     onBack: () -> Unit,
     onAllDayChange: (Boolean) -> Unit,
     onDueAtChange: (Long?) -> Unit,
+    onOpenRepeat: () -> Unit,
     onStub: (String) -> Unit
 ) {
     Column(modifier = Modifier.padding(horizontal = 20.dp)) {
@@ -239,7 +304,12 @@ private fun WhenContent(
 
         Spacer(Modifier.height(20.dp))
 
-        StubRow(label = "Repeat", value = "None", onClick = { onStub("Custom repeat") })
+        val repeat = state.repeat
+        StubRow(
+            label = "Repeat",
+            value = if (repeat == null) "None" else rruleShortLabel(repeat, state.repeatAnchorDate),
+            onClick = onOpenRepeat
+        )
         StubRow(label = "Early alert", value = "At time of event", onClick = { onStub("Early alerts") })
         StubRow(label = "Alert style", value = "Default", onClick = { onStub("Alert style") }, showDivider = false)
     }

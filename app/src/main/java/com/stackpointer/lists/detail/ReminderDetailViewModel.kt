@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.stackpointer.lists.data.repository.ListRepository
 import com.stackpointer.lists.data.repository.ReminderRepository
+import com.stackpointer.lists.recurrence.RRule
+import com.stackpointer.lists.recurrence.rruleSummary
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -20,6 +22,8 @@ data class ReminderDetailUiState(
     val title: String = "",
     val note: String? = null,
     val dueText: String? = null,
+    val repeatText: String = "None",
+    val repeats: Boolean = false,
     val listName: String = "",
     val listColorArgb: Int = 0,
     val isImportant: Boolean = false,
@@ -42,6 +46,10 @@ class ReminderDetailViewModel(
             ReminderDetailUiState(isLoading = false, found = false)
         } else {
             val list = lists.find { it.id == reminder.listId }
+            val rule = RRule.parse(reminder.repeatRule)
+            val anchorDate = (reminder.seriesStartAt ?: reminder.dueAt)?.let {
+                Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+            } ?: java.time.LocalDate.now()
             ReminderDetailUiState(
                 isLoading = false,
                 found = true,
@@ -50,6 +58,8 @@ class ReminderDetailViewModel(
                 dueText = reminder.dueAt?.let {
                     Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(formatter)
                 },
+                repeatText = rule?.let { rruleSummary(it, anchorDate) } ?: "None",
+                repeats = rule != null,
                 listName = list?.name ?: "",
                 listColorArgb = list?.colorArgb ?: 0,
                 isImportant = reminder.isImportant,
@@ -62,9 +72,15 @@ class ReminderDetailViewModel(
         initialValue = ReminderDetailUiState()
     )
 
+    // Completing a repeating reminder rolls it to its next occurrence rather
+    // than striking it off, which is invisible unless we say so.
+    private val _messages = kotlinx.coroutines.flow.MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val messages: kotlinx.coroutines.flow.SharedFlow<String> = _messages
+
     fun toggleCompleted() {
         viewModelScope.launch {
-            reminderRepository.setCompleted(reminderId, !uiState.value.isCompleted)
+            val rolledForward = reminderRepository.setCompleted(reminderId, !uiState.value.isCompleted)
+            if (rolledForward) _messages.tryEmit("Done — moved to the next occurrence")
         }
     }
 

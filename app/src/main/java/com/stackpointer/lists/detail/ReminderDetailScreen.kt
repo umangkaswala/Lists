@@ -37,6 +37,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,6 +69,10 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
 
     fun notYetAvailable(feature: String) {
         scope.launch { snackbarHostState.showSnackbar("$feature is coming in a later phase") }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
     }
 
     Scaffold(
@@ -149,8 +155,8 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                     PropertyRow(
                         icon = Icons.Rounded.Repeat,
                         label = "Repeat",
-                        value = "None",
-                        onClick = { notYetAvailable("Custom repeat") },
+                        value = state.repeatText,
+                        onClick = onEdit,
                         showDivider = false
                     )
                 }
@@ -183,7 +189,12 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(text = "History", style = MaterialTheme.typography.labelLarge)
                     Text(
-                        text = "This reminder doesn't repeat yet, so there's no streak to show.",
+                        text = if (state.repeats) {
+                            "Completing this moves it to the next occurrence. " +
+                                "Streaks arrive with the Completed screen in a later phase."
+                        } else {
+                            "This reminder doesn't repeat yet, so there's no streak to show."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -212,11 +223,18 @@ private fun PropertyRow(
             ) {
                 Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.width(16.dp))
-                Text(text = label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                // The label keeps its intrinsic width and the value takes the
+                // rest: giving the *label* the weight instead squeezed it to one
+                // character per line as soon as a value got long (e.g. a full
+                // repeat summary).
+                Text(text = label, style = MaterialTheme.typography.bodyLarge)
+                Spacer(Modifier.width(16.dp))
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = valueColor ?: MaterialTheme.colorScheme.onSurfaceVariant
+                    color = valueColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }

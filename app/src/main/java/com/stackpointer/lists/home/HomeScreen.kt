@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.Mic
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
@@ -331,16 +332,32 @@ private fun ReminderCard(
                         MaterialTheme.colorScheme.onSurface
                     }
                 )
-                if (reminder.metaText != null) {
-                    Text(
-                        text = reminder.metaText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (reminder.isOverdue) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                if (reminder.metaText != null || reminder.repeats) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (reminder.repeats) {
+                            // Completing a repeating reminder rolls it forward
+                            // instead of removing it from the list — without a
+                            // marker that reads as "my tap did nothing".
+                            Icon(
+                                imageVector = Icons.Rounded.Repeat,
+                                contentDescription = "Repeats",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(14.dp).padding(end = 2.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
                         }
-                    )
+                        if (reminder.metaText != null) {
+                            Text(
+                                text = reminder.metaText,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (reminder.isOverdue) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
                 }
             }
             IconButton(onClick = onToggleImportant) {

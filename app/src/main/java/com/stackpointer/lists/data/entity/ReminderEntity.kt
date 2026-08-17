@@ -29,9 +29,13 @@ data class ReminderEntity(
     val isImportant: Boolean = false,
     val deletedAt: Long? = null,
     val createdAt: Long,
-    // Populated starting Phase 3 (custom repeat) — schema-ready now to avoid a
-    // later migration.
+    // RFC 5545 rule parameters, e.g. "FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,FR".
+    // Null means the reminder doesn't repeat. See recurrence/RRule.kt.
     val repeatRule: String? = null,
+    // The first occurrence of a repeating series. [dueAt] moves forward each
+    // time the reminder is completed, so it can't double as the series anchor:
+    // a COUNT=10 rule would restart its count on every completion and never end.
+    val seriesStartAt: Long? = null,
     // Populated starting Phase 7 (places/geofencing).
     val placeId: Long? = null
 )

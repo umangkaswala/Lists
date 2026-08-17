@@ -118,7 +118,11 @@ bumping anything, and re-verify Kotlin/KSP stay matched.
 export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"
 export PATH="$JAVA_HOME/bin:$PATH"
 ./gradlew.bat :app:assembleDebug --no-daemon
+./gradlew.bat :app:testDebugUnitTest --no-daemon   # pure-Kotlin unit tests
 ```
+
+(If the same script also sets `MSYS_NO_PATHCONV=1`, use the Windows-form
+`JAVA_HOME` instead — see the gotchas list below.)
 
 ### Self-verifying a phase before telling the user it's done
 
@@ -165,6 +169,23 @@ the resized screenshot image.
   screens for it too.
 - Reading a value off a `by`-delegated Compose `State` twice (e.g. a
   null-check then a use) can fail smart-cast — assign to a local `val` first.
+- `export MSYS_NO_PATHCONV=1` (needed for `/sdcard/...` adb paths) also stops
+  Git Bash rewriting `JAVA_HOME` into a Windows path, so `gradlew.bat` then
+  fails with "JAVA_HOME is set to an invalid directory". In any script that
+  sets `MSYS_NO_PATHCONV`, write `JAVA_HOME` in Windows form instead:
+  `export JAVA_HOME="C:\\Program Files\\Android\\Android Studio\\jbr"`.
+- Room's `fallbackToDestructiveMigration` recreates the tables **without**
+  calling `onCreate`, so seed data added there silently disappears after a
+  schema-version bump — override `onDestructiveMigration` as well (see
+  `data/db/ListsDatabase.kt`).
+- In a `Row`, putting `Modifier.weight(1f)` on the *label* and leaving the
+  value unweighted collapses the label to one character per line as soon as
+  the value gets long. Weight the value instead. This bit Detail's property
+  rows in Phase 3 once the Repeat row started showing a full rule summary.
+- Running two Gradle builds against this project at once (e.g. two subagents)
+  races on `app/build/` — expect spurious "Unresolved reference" errors and
+  overwritten test-result XML. Retry rather than chasing the error; better,
+  don't hand concurrent agents tasks that both need Gradle.
 
 ## What NOT to do without asking
 

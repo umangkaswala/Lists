@@ -17,3 +17,6 @@ app/debug/
 
 # Claude / Remember plugin working files (not project source)
 /.remember/
+
+# Kotlin compiler error logs (build artifact)
+.kotlin/

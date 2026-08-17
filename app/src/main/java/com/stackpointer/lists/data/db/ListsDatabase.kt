@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.atomic.AtomicBoolean
 
 @Database(
     entities = [
@@ -25,7 +26,7 @@ import java.time.Instant
         ChecklistItemEntity::class,
         PlaceEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class ListsDatabase : RoomDatabase() {
@@ -61,8 +62,28 @@ abstract class ListsDatabase : RoomDatabase() {
 private class SeedCallback(private val context: Context) : RoomDatabase.Callback() {
     override fun onCreate(db: SupportSQLiteDatabase) {
         super.onCreate(db)
+        seed()
+    }
+
+    // A destructive migration recreates the tables without calling onCreate, so
+    // bumping the schema version used to leave the app empty on next launch
+    // rather than reseeded.
+    override fun onDestructiveMigration(db: SupportSQLiteDatabase) {
+        super.onDestructiveMigration(db)
+        seed()
+    }
+
+    // Both callbacks can fire for one launch, and each seeds on its own IO
+    // coroutine — a "is the table empty?" check would be a check-then-act race
+    // between them and could seed the samples twice. Claiming this flag first
+    // is what actually makes it happen once.
+    private val seedClaimed = AtomicBoolean(false)
+
+    private fun seed() {
+        if (!seedClaimed.compareAndSet(false, true)) return
         CoroutineScope(Dispatchers.IO).launch {
-            seedDatabase(ListsDatabase.get(context))
+            val db = ListsDatabase.get(context)
+            if (db.reminderDao().countActive() == 0) seedDatabase(db)
         }
     }
 }
@@ -130,6 +151,20 @@ private suspend fun seedDatabase(db: ListsDatabase) {
             createdAt = now
         )
     )
+    // A repeating sample so the Repeat editor and the reschedule-on-complete
+    // behaviour are visible without having to create one first.
+    val binsDueAt = at(Duration.ofHours(6))
+    db.reminderDao().insert(
+        ReminderEntity(
+            listId = personalListId,
+            title = "Bins out",
+            dueAt = binsDueAt,
+            seriesStartAt = binsDueAt,
+            repeatRule = "FREQ=WEEKLY;BYDAY=TU",
+            createdAt = now
+        )
+    )
+
     db.reminderDao().insert(
         ReminderEntity(
             listId = personalListId,

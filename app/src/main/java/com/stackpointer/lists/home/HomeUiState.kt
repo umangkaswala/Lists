@@ -6,7 +6,8 @@ data class ReminderCardUiModel(
     val metaText: String?,
     val isOverdue: Boolean,
     val isCompleted: Boolean,
-    val isImportant: Boolean
+    val isImportant: Boolean,
+    val repeats: Boolean = false
 )
 
 data class ReminderSection(
