@@ -1,6 +1,7 @@
 package com.stackpointer.lists.home
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +47,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.stackpointer.lists.capture.CaptureTarget
 import com.stackpointer.lists.di.currentAppContainer
 import com.stackpointer.lists.ui.theme.ListsCorner
 
@@ -53,6 +55,7 @@ import com.stackpointer.lists.ui.theme.ListsCorner
 fun HomeScreen(
     onOpenLists: () -> Unit,
     onOpenReminder: (Long) -> Unit,
+    onOpenCapture: (CaptureTarget) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val container = currentAppContainer()
@@ -82,7 +85,7 @@ fun HomeScreen(
             }
 
             if (state.isEmpty) {
-                item { HomeEmptyState() }
+                item { HomeEmptyState(onPromptSelected = { text -> onOpenCapture(CaptureTarget.New(text)) }) }
             }
 
             state.sections.forEach { section ->
@@ -111,7 +114,10 @@ fun HomeScreen(
             }
         }
 
-        CapturePill(modifier = Modifier.align(Alignment.BottomCenter))
+        CapturePill(
+            onClick = { onOpenCapture(CaptureTarget.New()) },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
     }
 }
 
@@ -236,8 +242,10 @@ private fun FilterChipRow(state: HomeUiState, onSelectList: (Long) -> Unit) {
     }
 }
 
+private val examplePrompts = listOf("Buy milk tomorrow morning", "Team meeting Friday 10am")
+
 @Composable
-private fun HomeEmptyState() {
+private fun HomeEmptyState(onPromptSelected: (String) -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -249,8 +257,28 @@ private fun HomeEmptyState() {
         Text(
             text = "Tap the capture pill below to add your first reminder.",
             style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(bottom = 20.dp)
         )
+        examplePrompts.forEach { prompt ->
+            Surface(
+                onClick = { onPromptSelected(prompt) },
+                color = androidx.compose.ui.graphics.Color.Transparent,
+                shape = RoundedCornerShape(24.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp)
+            ) {
+                Text(
+                    text = prompt,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
     }
 }
 
@@ -331,7 +359,7 @@ private fun ReminderCard(
 }
 
 @Composable
-fun CapturePill(modifier: Modifier = Modifier) {
+fun CapturePill(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         shape = MaterialTheme.shapes.extraLarge,
@@ -354,7 +382,9 @@ fun CapturePill(modifier: Modifier = Modifier) {
                 text = "Add a reminder",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable(onClick = onClick)
             )
             Surface(
                 color = MaterialTheme.colorScheme.primary,
@@ -362,7 +392,7 @@ fun CapturePill(modifier: Modifier = Modifier) {
                 shape = RoundedCornerShape(ListsCorner.largeIncreased),
                 modifier = Modifier.size(40.dp)
             ) {
-                IconButton(onClick = { /* wired in Phase 2: Capture sheet */ }) {
+                IconButton(onClick = onClick) {
                     Icon(Icons.Rounded.Add, contentDescription = "Add reminder")
                 }
             }

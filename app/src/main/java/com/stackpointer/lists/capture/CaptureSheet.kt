@@ -1,0 +1,299 @@
+package com.stackpointer.lists.capture
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.Checklist
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.KeyboardArrowLeft
+import androidx.compose.material.icons.rounded.List
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Send
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.stackpointer.lists.di.currentAppContainer
+import kotlinx.coroutines.launch
+
+@Composable
+fun CaptureSheetContent(
+    target: CaptureTarget,
+    sheetKey: Int,
+    onDismiss: () -> Unit
+) {
+    val container = currentAppContainer()
+    val scope = rememberCoroutineScope()
+    // Plain remember, not viewModel(): see CaptureViewModel's doc comment for
+    // why. Keying on sheetKey (not just target) guarantees a fresh instance
+    // every time the sheet opens, even for structurally-equal targets like
+    // two back-to-back CaptureTarget.New() calls.
+    val viewModel = remember(sheetKey) {
+        CaptureViewModel(target, container.reminderRepository, container.listRepository, scope)
+    }
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    LaunchedEffect(state.savedSuccessfully) {
+        if (state.savedSuccessfully) onDismiss()
+    }
+
+    // A ModalBottomSheet renders in its own popup window, above the rest of
+    // the screen — a SnackbarHost hosted outside it (e.g. in the NavHost) is
+    // invisible while the sheet is open. This sheet needs its own.
+    val snackbarHostState = remember { SnackbarHostState() }
+    fun showStub(feature: String) {
+        scope.launch { snackbarHostState.showSnackbar("$feature is coming in a later phase") }
+    }
+
+    Box {
+        if (state.notFound) {
+            Column(modifier = Modifier.fillMaxWidth().padding(20.dp)) {
+                Text(
+                    text = "This reminder no longer exists.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(16.dp))
+                Surface(
+                    onClick = onDismiss,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(text = "Close", modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
+                }
+            }
+            return
+        }
+
+        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+            when (state.mode) {
+                CaptureMode.TYPING -> TypingContent(
+                    state = state,
+                    onTitleChange = viewModel::updateTitle,
+                    onOpenWhen = viewModel::openWhen,
+                    onClearDue = viewModel::clearDue,
+                    onStub = ::showStub,
+                    onSend = viewModel::save
+                )
+                CaptureMode.WHEN -> WhenContent(
+                    state = state,
+                    onBack = viewModel::collapseToTyping,
+                    onAllDayChange = viewModel::setAllDay,
+                    onDueAtChange = viewModel::setDueAt,
+                    onStub = ::showStub
+                )
+            }
+        }
+
+        SnackbarHost(snackbarHostState, modifier = Modifier.align(Alignment.BottomCenter))
+    }
+}
+
+@Composable
+private fun TypingContent(
+    state: CaptureUiState,
+    onTitleChange: (String) -> Unit,
+    onOpenWhen: () -> Unit,
+    onClearDue: () -> Unit,
+    onStub: (String) -> Unit,
+    onSend: () -> Unit
+) {
+    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+        TextField(
+            value = state.title,
+            onValueChange = onTitleChange,
+            placeholder = { Text("What do you need to remember?") },
+            textStyle = MaterialTheme.typography.titleLarge,
+            colors = TextFieldDefaults.colors(
+                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (state.dueAt != null) {
+            Spacer(Modifier.height(12.dp))
+            DueChip(dueAt = state.dueAt, isAllDay = state.isAllDay, onClick = onOpenWhen, onClear = onClearDue)
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            CaptureActionIcon(Icons.Rounded.CalendarToday, "When", active = state.dueAt != null, onClick = onOpenWhen)
+            CaptureActionIcon(Icons.Rounded.Place, "Where", onClick = { onStub("Places") })
+            CaptureActionIcon(Icons.Rounded.Checklist, "Checklist", onClick = { onStub("Checklists") })
+            CaptureActionIcon(Icons.Rounded.PhotoCamera, "Photo", onClick = { onStub("Photo attachments") })
+            CaptureActionIcon(Icons.Rounded.List, "List", onClick = { onStub("Choosing a list") })
+            Spacer(Modifier.weight(1f))
+            Surface(
+                onClick = onSend,
+                color = if (state.canSave) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = if (state.canSave) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.size(56.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Rounded.Send, contentDescription = "Save reminder")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DueChip(dueAt: Long, isAllDay: Boolean, onClick: () -> Unit, onClear: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 6.dp)) {
+            Text(text = formatDueLabel(dueAt, isAllDay), style = MaterialTheme.typography.labelLarge)
+            IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
+                Icon(Icons.Rounded.Close, contentDescription = "Clear due date", modifier = Modifier.size(16.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CaptureActionIcon(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    active: Boolean = false,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        color = if (active) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent,
+        contentColor = if (active) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.size(48.dp)
+    ) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
+            Icon(icon, contentDescription = label)
+        }
+    }
+}
+
+@Composable
+private fun WhenContent(
+    state: CaptureUiState,
+    onBack: () -> Unit,
+    onAllDayChange: (Boolean) -> Unit,
+    onDueAtChange: (Long?) -> Unit,
+    onStub: (String) -> Unit
+) {
+    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Rounded.KeyboardArrowLeft, contentDescription = "Back")
+            }
+            Text(text = "When", style = MaterialTheme.typography.titleLarge)
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Text(text = "All day", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(checked = state.isAllDay, onCheckedChange = onAllDayChange)
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            text = "Quick pick",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(8.dp))
+        QuickTimeChips(onPick = onDueAtChange)
+
+        Spacer(Modifier.height(20.dp))
+
+        StubRow(label = "Repeat", value = "None", onClick = { onStub("Custom repeat") })
+        StubRow(label = "Early alert", value = "At time of event", onClick = { onStub("Early alerts") })
+        StubRow(label = "Alert style", value = "Default", onClick = { onStub("Alert style") }, showDivider = false)
+    }
+}
+
+@Composable
+private fun QuickTimeChips(onPick: (Long) -> Unit) {
+    val presets = rememberQuickTimePresets()
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        presets.forEach { preset ->
+            Surface(
+                onClick = { onPick(preset.epochMillis) },
+                color = androidx.compose.ui.graphics.Color.Transparent,
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Text(
+                    text = preset.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun StubRow(label: String, value: String, onClick: () -> Unit, showDivider: Boolean = true) {
+    Column {
+        Surface(onClick = onClick, color = androidx.compose.ui.graphics.Color.Transparent) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+            ) {
+                Text(text = label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                Text(
+                    text = value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End
+                )
+            }
+        }
+        if (showDivider) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(1.dp)
+                    .padding(vertical = 0.dp)
+            ) {
+                Surface(color = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.fillMaxWidth().height(1.dp)) {}
+            }
+        }
+    }
+}

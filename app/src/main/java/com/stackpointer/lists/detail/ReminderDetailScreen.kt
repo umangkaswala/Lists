@@ -52,7 +52,7 @@ import com.stackpointer.lists.di.currentAppContainer
 import kotlinx.coroutines.launch
 
 @Composable
-fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit) {
+fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Unit) {
     val container = currentAppContainer()
     val viewModel: ReminderDetailViewModel = viewModel(
         factory = ReminderDetailViewModel.Factory(
@@ -98,7 +98,7 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit) {
             if (state.found) {
                 DetailBottomBar(
                     isCompleted = state.isCompleted,
-                    onEdit = { notYetAvailable("Editing") },
+                    onEdit = onEdit,
                     onSnooze = { notYetAvailable("Snooze") },
                     onShare = { notYetAvailable("Sharing") },
                     onDelete = { notYetAvailable("Deleting") },

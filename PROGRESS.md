@@ -4,7 +4,7 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phase 1 complete and pushed. Start Phase 2 next.**
+**Current status: Phase 2 complete and pushed. Start Phase 3 next.**
 
 **Process note (2026-08-17):** from Phase 2 onward, every phase gets a
 `/code-review` pass on the diff after self-verification and before
@@ -68,13 +68,75 @@ Not yet manually verified: dragging a list row to reorder it (create/delete
 were thoroughly tested; the drag gesture itself wasn't exercised through
 automation — worth a manual check next time the Lists screen is open).
 
-## Phase 2 — Capture create/edit + Capture-When — ⬜ NOT STARTED (next up)
+## Phase 2 — Capture create/edit + Capture-When — ✅ DONE (2026-08-17, commit pending)
 
-Per PLAN.md: bottom-sheet Capture with plain text entry, working When
-sub-editor (date/time picker, hardcoded quick-time chips for now), wired
-into the capture pill, the Home empty-state prompts, and Detail's Edit
-action. Demo target: create and edit a reminder with a due date/time
-end-to-end through the actual Capture UI (not just seeded data).
+Built:
+- **Capture bottom sheet** (`capture/CaptureSheet.kt`, `CaptureViewModel.kt`,
+  `CaptureTarget.kt`): free-text title field, action-row icons (When wired;
+  Where/Checklist/Photo/List show a "coming in a later phase" snackbar),
+  Send button that creates or updates a reminder depending on whether it was
+  opened for a new reminder or to edit an existing one.
+- **When sub-editor**: all-day switch, four hardcoded quick-time preset
+  chips (Later today / Tonight / Tomorrow / Next week — becomes
+  Settings-driven in Phase 9), Repeat/Early alert/Alert style stub rows.
+  Picking a preset returns to the typing view with a due-date chip (tap to
+  reopen When, X to clear).
+- Wired into: the Home capture pill, the two Home empty-state example-prompt
+  buttons (added this phase — Phase 1 had left them out), and Detail's Edit
+  button (previously stubbed).
+- `ReminderRepository.updateReminderFields()` added for the edit path.
+
+Verified end-to-end on the `Pixel_9` emulator: created a reminder through
+the real Capture UI with a due date picked via the When quick-picks
+(confirmed it appeared correctly grouped on Home); opened that reminder's
+Detail screen, tapped Edit, confirmed the sheet pre-filled with its existing
+title/due date, changed the title, saved, confirmed Detail reflected the
+change; confirmed a stub action (Where) shows its snackbar.
+
+**Ran `/code-review` on the diff** (first phase to do so) and it found three
+real bugs, all fixed before committing:
+1. Opening the Capture sheet twice in a row (e.g. save one reminder, then
+   tap Edit on another) silently reused the *first* sheet's already-saved
+   state, causing the second sheet to instantly self-dismiss with no
+   feedback. Root cause: `androidx.lifecycle.viewmodel.compose.viewModel()`
+   caches by call-site + class, and `CaptureTarget.New()` instances are
+   structurally equal to each other, so Compose treated repeat opens as "the
+   same" request. **I also independently found and fixed** a related bug
+   during my own manual testing before the code-review ran: this same
+   stale-state issue made a star-toggle appear to silently revert (it was
+   actually a mistapped test coordinate, but chasing it surfaced the deeper
+   pattern the review then confirmed).
+2. As a consequence of fixing #1 with a naive "always-fresh key" counter,
+   `/code-review` caught that every sheet-open was leaking a retained
+   ViewModel for the life of the app process (nothing ever cleared the old
+   keyed entries). Fixed properly by not using `androidx.lifecycle.ViewModel`
+   for `CaptureViewModel` at all — it's now a plain class created with
+   `remember(sheetKey)`, so it's garbage-collected like any other Compose
+   state when the sheet closes.
+3. Saving a reminder called `onDismiss()` directly from the composable body
+   instead of from a `LaunchedEffect`, which skipped the bottom sheet's
+   normal hide animation. Fixed.
+
+Also found and fixed during my own manual testing (before code-review): a
+`ModalBottomSheet`'s content renders in its own popup window, so the
+`SnackbarHost` hosted at the NavHost level was completely invisible while
+the sheet was open — tapping a stub action (e.g. "Where") produced no
+visible feedback at all. Fixed by giving the Capture sheet its own
+`SnackbarHost` inside its own window layer.
+
+Not yet built (intentionally, deferred to later phases per PLAN.md):
+natural-language parsing of typed text into chips (Phase 3),
+Where/Checklist/Photo/List actions (Phases 4/7/8), Repeat/Early alert/Alert
+style (Phase 3/9).
+
+**Scope simplification worth flagging (my call, not pre-approved in
+PLAN.md):** the When editor only offers the four quick-time presets — there
+is no calendar/clock picker to set an arbitrary date or time. PLAN.md's
+Phase 2 line says "date/time, hardcoded quick-time chips for now," which
+could reasonably be read either way; I read it as "chips only" to keep this
+phase's scope contained, but a real date/time picker may be worth pulling
+forward if presets feel too limiting in practice. Flagging for the user
+rather than silently deciding it's fine.
 
 ## Phases 3–12 — ⬜ NOT STARTED
 

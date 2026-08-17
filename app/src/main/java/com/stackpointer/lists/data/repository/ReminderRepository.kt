@@ -29,6 +29,26 @@ class ReminderRepository(private val reminderDao: ReminderDao) {
         )
     }
 
+    suspend fun updateReminderFields(
+        id: Long,
+        title: String,
+        note: String?,
+        listId: Long,
+        dueAt: Long?,
+        isAllDay: Boolean
+    ) {
+        val current = reminderDao.getById(id) ?: return
+        reminderDao.update(
+            current.copy(
+                title = title,
+                note = note,
+                listId = listId,
+                dueAt = dueAt,
+                isAllDay = isAllDay
+            )
+        )
+    }
+
     suspend fun setCompleted(id: Long, completed: Boolean) {
         reminderDao.setCompleted(
             id = id,
