@@ -22,15 +22,25 @@ trade-off decisions rather than assuming.
   built, verified, and pushed so far, plus known issues and deferred items.
   **Read this first** — it says exactly which phase to resume at.
 
-**At the start of every session**: read PROGRESS.md to find the current
-phase, then read that phase's entry in PLAN.md, then continue the work. Don't
-ask the user to re-describe the project — it's all in these two files.
+## Per-phase workflow
 
-**At the end of every phase** (or every session, if a phase spans more than
-one): update PROGRESS.md with what was done, what was verified and how, what
-went well/didn't, and what's next — *before* ending the session. This is the
-mechanism that makes fresh sessions cheap: a new session reads two short
-files instead of replaying a long chat history.
+1. **Start of session**: read PROGRESS.md to find the current phase, then
+   read that phase's entry in PLAN.md, then continue the work. Don't ask the
+   user to re-describe the project — it's all in these files.
+2. **Implement** the phase per its PLAN.md description.
+3. **Self-verify on the emulator** before claiming it's done — install,
+   launch, tap through it, screenshot (see "Self-verifying a phase" below).
+   Compiling is not verifying.
+4. **Run the `/code-review` skill on the diff** before committing — cheap
+   insurance against bugs slipping through step 3, especially worth it on
+   the riskier phases (5 alarms, 7 geofencing, 10/11 widgets). Fix anything
+   it finds, or note in PROGRESS.md why a finding was skipped.
+5. **Update PROGRESS.md** with what was done, how it was verified (including
+   the code-review pass), what went well/didn't, and what's next.
+6. **Commit and push to `main`** — tell the user before pushing.
+
+This is the mechanism that makes fresh sessions cheap: a new session reads a
+couple of short files instead of replaying a long chat history.
 
 ## Key decisions already made (don't re-litigate these)
 

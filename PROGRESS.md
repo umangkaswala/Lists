@@ -6,6 +6,11 @@
 
 **Current status: Phase 1 complete and pushed. Start Phase 2 next.**
 
+**Process note (2026-08-17):** from Phase 2 onward, every phase gets a
+`/code-review` pass on the diff after self-verification and before
+committing — see CLAUDE.md's "Per-phase workflow" section. Phases 0 and 1
+below predate this and were not code-reviewed.
+
 ## Phase 0 — Project bootstrap — ✅ DONE (2026-08-17, commit `6b580be`)
 
 Built: Compose Android project skeleton, package `com.stackpointer.lists`,
