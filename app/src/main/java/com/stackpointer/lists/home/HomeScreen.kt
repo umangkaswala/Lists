@@ -9,7 +9,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -34,6 +36,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -57,11 +60,17 @@ fun HomeScreen(
     onOpenLists: () -> Unit,
     onOpenReminder: (Long) -> Unit,
     onOpenCapture: (CaptureTarget) -> Unit,
+    onOpenSearch: () -> Unit,
+    onOpenToday: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val container = currentAppContainer()
     val viewModel: HomeViewModel = viewModel(
-        factory = HomeViewModel.Factory(container.reminderRepository, container.listRepository)
+        factory = HomeViewModel.Factory(
+            container.reminderRepository,
+            container.listRepository,
+            container.checklistRepository
+        )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -72,11 +81,11 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                SearchBarRow(onOpenLists = onOpenLists)
+                SearchBarRow(onOpenLists = onOpenLists, onOpenSearch = onOpenSearch)
             }
 
             item {
-                TileGrid(state = state, onSelectList = viewModel::selectList)
+                TileGrid(state = state, onSelectList = viewModel::selectList, onOpenToday = onOpenToday)
             }
 
             if (state.listTiles.size > 1) {
@@ -123,7 +132,7 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SearchBarRow(onOpenLists: () -> Unit) {
+private fun SearchBarRow(onOpenLists: () -> Unit, onOpenSearch: () -> Unit) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = MaterialTheme.shapes.extraLarge,
@@ -143,7 +152,11 @@ private fun SearchBarRow(onOpenLists: () -> Unit) {
                 text = "Search Lists",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clickable(onClick = onOpenSearch)
+                    .wrapContentHeight()
             )
             IconButton(onClick = onOpenLists) {
                 Icon(Icons.Rounded.List, contentDescription = "Your lists")
@@ -153,9 +166,10 @@ private fun SearchBarRow(onOpenLists: () -> Unit) {
 }
 
 @Composable
-private fun TileGrid(state: HomeUiState, onSelectList: (Long) -> Unit) {
+private fun TileGrid(state: HomeUiState, onSelectList: (Long) -> Unit, onOpenToday: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Card(
+            onClick = onOpenToday,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer,
                 contentColor = MaterialTheme.colorScheme.onPrimaryContainer
@@ -357,6 +371,25 @@ private fun ReminderCard(
                                 }
                             )
                         }
+                    }
+                }
+                if (reminder.hasChecklist) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        LinearProgressIndicator(
+                            progress = { reminder.checklistProgress },
+                            trackColor = MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp))
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "${reminder.checklistDone} of ${reminder.checklistTotal}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

@@ -1,6 +1,8 @@
 package com.stackpointer.lists.capture
 
 import com.stackpointer.lists.data.entity.ReminderListEntity
+import com.stackpointer.lists.data.repository.ChecklistItemDraft
+import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
 import com.stackpointer.lists.data.repository.ReminderRepository
 import com.stackpointer.lists.parser.CaptureParser
@@ -17,7 +19,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
-enum class CaptureMode { TYPING, WHEN, REPEAT }
+enum class CaptureMode { TYPING, WHEN, REPEAT, LIST }
 
 data class CaptureUiState(
     val mode: CaptureMode = CaptureMode.TYPING,
@@ -25,6 +27,8 @@ data class CaptureUiState(
     val note: String? = null,
     val listId: Long? = null,
     val lists: List<ReminderListEntity> = emptyList(),
+    val checklist: List<ChecklistItemDraft> = emptyList(),
+    val showChecklist: Boolean = false,
     val dueAt: Long? = null,
     val isAllDay: Boolean = false,
     val repeat: RRule? = null,
@@ -39,6 +43,7 @@ data class CaptureUiState(
 ) {
     val canSave: Boolean get() = title.isNotBlank() && !isSaving
     val listName: String get() = lists.find { it.id == listId }?.name ?: ""
+    val listColorArgb: Int get() = lists.find { it.id == listId }?.colorArgb ?: 0
 
     /** The date a repeat rule counts from, for summarising a rule that omits BYDAY. */
     val repeatAnchorDate: LocalDate
@@ -56,6 +61,7 @@ class CaptureViewModel(
     private val target: CaptureTarget,
     private val reminderRepository: ReminderRepository,
     private val listRepository: ListRepository,
+    private val checklistRepository: ChecklistRepository,
     private val scope: CoroutineScope,
     private val zone: ZoneId = ZoneId.systemDefault()
 ) {
@@ -90,6 +96,9 @@ class CaptureViewModel(
                         // choices; re-parsing its title would be wrong.
                         dueOverridden = true
                         repeatOverridden = true
+                        val existingChecklist = checklistRepository
+                            .observeForReminder(target.reminderId).first()
+                            .map { ChecklistItemDraft(it.text, it.isCompleted) }
                         _uiState.value = _uiState.value.copy(
                             title = reminder.title,
                             cleanedTitle = reminder.title,
@@ -99,6 +108,8 @@ class CaptureViewModel(
                             dueAt = reminder.dueAt,
                             isAllDay = reminder.isAllDay,
                             repeat = RRule.parse(reminder.repeatRule),
+                            checklist = existingChecklist,
+                            showChecklist = existingChecklist.isNotEmpty(),
                             isEditing = true
                         )
                     }
@@ -187,6 +198,78 @@ class CaptureViewModel(
         )
     }
 
+    // --- Checklist -------------------------------------------------------
+
+    /** Toggling the Checklist action opens the section, seeded with one empty row to type into. */
+    fun toggleChecklist() {
+        val state = _uiState.value
+        _uiState.value = if (state.showChecklist && state.checklist.all { it.text.isBlank() }) {
+            state.copy(showChecklist = false, checklist = emptyList())
+        } else {
+            state.copy(
+                showChecklist = true,
+                checklist = state.checklist.ifEmpty { listOf(ChecklistItemDraft("")) }
+            )
+        }
+    }
+
+    fun updateChecklistItem(index: Int, text: String) {
+        val items = _uiState.value.checklist.toMutableList()
+        if (index !in items.indices) return
+        items[index] = items[index].copy(text = text)
+        _uiState.value = _uiState.value.copy(checklist = items)
+    }
+
+    fun toggleChecklistItem(index: Int) {
+        val items = _uiState.value.checklist.toMutableList()
+        if (index !in items.indices) return
+        items[index] = items[index].copy(isCompleted = !items[index].isCompleted)
+        _uiState.value = _uiState.value.copy(checklist = items)
+    }
+
+    fun removeChecklistItem(index: Int) {
+        val items = _uiState.value.checklist.toMutableList()
+        if (index !in items.indices) return
+        items.removeAt(index)
+        _uiState.value = _uiState.value.copy(checklist = items)
+    }
+
+    fun addChecklistItem() {
+        // Don't stack up blank rows if the user taps "Add an item" repeatedly.
+        val items = _uiState.value.checklist
+        if (items.lastOrNull()?.text?.isBlank() == true) return
+        _uiState.value = _uiState.value.copy(checklist = items + ChecklistItemDraft(""))
+    }
+
+    // --- List ------------------------------------------------------------
+
+    fun openListPicker() {
+        _uiState.value = _uiState.value.copy(mode = CaptureMode.LIST)
+    }
+
+    fun selectList(listId: Long) {
+        _uiState.value = _uiState.value.copy(listId = listId, mode = CaptureMode.TYPING)
+    }
+
+    /** Inline "New list" from the picker, so capture isn't interrupted by a trip to Lists. */
+    fun createListAndSelect(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        scope.launch {
+            val existing = _uiState.value.lists
+            val newId = listRepository.createList(
+                name = trimmed,
+                colorArgb = NEW_LIST_COLORS[existing.size % NEW_LIST_COLORS.size],
+                position = existing.size
+            )
+            _uiState.value = _uiState.value.copy(
+                lists = listRepository.observeLists().first(),
+                listId = newId,
+                mode = CaptureMode.TYPING
+            )
+        }
+    }
+
     fun clearRepeat() {
         repeatOverridden = true
         _uiState.value = _uiState.value.copy(repeat = null, parsedFromText = false)
@@ -220,10 +303,14 @@ class CaptureViewModel(
         val dueToSave = state.dueAt ?: rule?.let { firstOccurrenceOf(it) }
         val ruleToSave = rule?.toRRuleString()?.takeIf { dueToSave != null }
 
+        val checklistItems = state.checklist
+            .map { it.copy(text = it.text.trim()) }
+            .filter { it.text.isNotEmpty() }
+
         scope.launch {
             when (target) {
                 is CaptureTarget.New -> {
-                    reminderRepository.createReminder(
+                    val newId = reminderRepository.createReminder(
                         listId = listId,
                         title = titleToSave,
                         note = state.note,
@@ -231,6 +318,9 @@ class CaptureViewModel(
                         isAllDay = state.isAllDay,
                         repeatRule = ruleToSave
                     )
+                    if (checklistItems.isNotEmpty()) {
+                        checklistRepository.replaceItems(newId, checklistItems)
+                    }
                 }
                 is CaptureTarget.Edit -> {
                     reminderRepository.updateReminderFields(
@@ -242,9 +332,21 @@ class CaptureViewModel(
                         isAllDay = state.isAllDay,
                         repeatRule = ruleToSave
                     )
+                    // Always called on edit, including with an empty list, so
+                    // deleting every item actually removes the checklist.
+                    checklistRepository.replaceItems(target.reminderId, checklistItems)
                 }
             }
             _uiState.value = _uiState.value.copy(isSaving = false, savedSuccessfully = true)
         }
+    }
+
+    private companion object {
+        // Matches the palette the Lists screen offers, so an inline-created
+        // list doesn't look foreign next to one made the normal way.
+        val NEW_LIST_COLORS = listOf(
+            0xFFA03E28.toInt(), 0xFF006A60.toInt(), 0xFF7D5260.toInt(),
+            0xFF4A6363.toInt(), 0xFF6750A4.toInt()
+        )
     }
 }

@@ -4,7 +4,12 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phase 3 complete and pushed. Start Phase 4 next.**
+**Current status: Phase 4 complete and pushed. Start Phase 5 next.**
+
+**Phase 5 is one of the four physical-device-critical phases** (5, 7, 10, 11)
+and PLAN.md/CLAUDE.md both call for running the **Plan agent** before starting
+it. Notifications and exact alarms behave very differently on an emulator, so
+this is the first phase that genuinely needs Umang's own phone to verify.
 
 **Process note (2026-08-17):** from Phase 2 onward, every phase gets a
 `/code-review` pass on the diff after self-verification and before
@@ -243,7 +248,87 @@ the shared data contract up front so the workers couldn't disagree about it.
 Worth repeating for phases with several independent, testable pieces; not worth
 it for a phase that's one connected slab of UI.
 
-## Phases 4–12 — ⬜ NOT STARTED
+## Phase 4 — Today view, swipe actions, checklists, list picker, Search — ✅ DONE (2026-08-17)
+
+Split again across two parallel Sonnet subagents (Today screen, Search screen)
+while I built the shared data layer and the Capture-side work. Notes on how the
+split went at the bottom.
+
+Built:
+- **Today screen** (`today/`, design S04): Overdue / Later today / Completed
+  today sections with the design's error-coloured overdue cards, a
+  `Monday, 17 August · N reminders` subtitle, and the "Add to Today" pill.
+  **Swipe one way to complete, the other to snooze 30 minutes**, each with an
+  Undo snackbar.
+- **Search screen** (`search/`, design S12): searches titles, notes *and*
+  checklist item text in one query, with the matched substring highlighted,
+  Open/Completed/Checklists filters, result counts, and recent-search chips
+  persisted in DataStore.
+- **Checklists**: add/edit/tick/remove rows in the Capture sheet, a checklist
+  card on Detail with tickable rows, and "N of M" progress bars on Home cards
+  and search results.
+- **Inline list picker** in Capture, including creating a new list without
+  leaving the sheet.
+- **Undo infrastructure**: `ReminderUndoSnapshot` + `snapshotFor`/`restore`,
+  because undoing a completed *repeating* reminder can't just flip a flag —
+  completing one moves its due date instead.
+- `seriesStartAt`-aware snooze, a `DISTINCT` search query, and DataStore added
+  for the first time (Settings will reuse it in Phase 9).
+
+Verified end-to-end on the `Pixel_9` emulator: searched "milk" and confirmed it
+matched a reminder **via its checklist item** with the match highlighted;
+swiped to complete and watched the item move to "Completed today" with an Undo
+snackbar; tapped Undo and confirmed the reminder came back to Overdue intact;
+swiped the other way and confirmed a 30-minute snooze moved it to "Later
+today"; created a reminder with a ticked checklist item and confirmed the tick
+survived the save. 75 unit tests still pass; no crashes in logcat.
+
+Bug I found myself during verification: after a swipe, the row stayed visually
+blank (just the swipe background) until the Undo snackbar timed out ~4 seconds
+later, because the dismiss state was only reset *after* the snackbar resolved.
+Now reset immediately after the action.
+
+**Also worth recording:** I twice concluded Undo was broken when it wasn't —
+the snackbar was simply expiring between my separate `adb` commands. Driving a
+timed UI needs the action and the follow-up tap in a *single* device-side
+command; otherwise the round-trip latency silently invalidates the test.
+
+**`/code-review` found six issues, all real, all fixed before committing:**
+1. Snooze clears the all-day flag but the undo snapshot didn't record it, so
+   snooze-then-undo permanently converted an all-day reminder to a timed one.
+2. The checklist's ticked state was thrown away on save — the tick box in the
+   Capture sheet was effectively a dead control.
+3. A crash: the search highlighter indexed the original string using offsets
+   from a lowercased copy. Lowercasing can *change a string's length* (Turkish
+   İ), so those offsets ran past the end and would crash the results list.
+4. A user typing `%` or `_` into search hit SQL `LIKE` wildcards and got every
+   reminder back. Now escaped, with `ESCAPE '\'` in the query.
+5. The checklist save was a delete-then-insert with no transaction — a save
+   cancelled mid-flight (the sheet's scope dies when it closes) could commit
+   the delete and lose every item.
+6. All-day reminders counted as overdue from 00:00, so they sat in the red
+   Overdue section all day. They're now only late once the day is over.
+
+**Deviations from the design worth flagging:**
+- Both subagents discovered they **cannot access the `DesignSync` tool** — it's
+  only available to the main session — so both built their screen from my
+  written brief rather than the spec. I checked them against the real specs
+  afterwards and corrected Search's filter chips and recent-search chips to the
+  design's colours/shapes. Today matched closely. This is now in CLAUDE.md:
+  fetch the spec and paste it into the prompt when delegating a screen.
+- Search has a "Clear" button for recent searches that the design doesn't show
+  (kept — otherwise the stored history can never be cleared).
+- Checklist rows have no drag-to-reorder yet, though the design shows drag
+  handles. Add/edit/tick/remove all work.
+- The "Photos" search filter is present but stubbed, since photo attachments
+  don't exist until Phase 8.
+
+**Note on the parallel-subagent split:** cheaper than Phase 3 in wall-clock
+terms, but the seams cost more — of the six review findings, four were in the
+boundary between my data layer and the agents' screens. Fetching the design
+specs for them up front would have removed most of the rework.
+
+## Phases 5–12 — ⬜ NOT STARTED
 
 See PLAN.md for full descriptions of each.
 

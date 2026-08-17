@@ -186,6 +186,21 @@ the resized screenshot image.
   races on `app/build/` — expect spurious "Unresolved reference" errors and
   overwritten test-result XML. Retry rather than chasing the error; better,
   don't hand concurrent agents tasks that both need Gradle.
+- **Subagents cannot use the `DesignSync` tool** — it's only wired into the
+  main session. Two Phase 4 agents independently discovered this and had to
+  guess at the design. When delegating a *screen*, fetch its `.dc.html` spec
+  yourself first and paste the relevant details into the agent's prompt, then
+  check the result against the spec when it comes back.
+- Room's `fallbackToDestructiveMigration` aside, remember `@Transaction` on
+  any DAO method that deletes-then-inserts (see `ChecklistItemDao`): the
+  Capture sheet's coroutine scope dies when the sheet closes, so a
+  non-transactional save can commit the delete and lose the inserts.
+- SQLite `LIKE` treats a user-typed `%` or `_` as a wildcard. Any search query
+  must go through `ReminderRepository.escapeForLike` and the SQL needs
+  `ESCAPE '\'`, or searching "50%" returns the entire table.
+- Don't index a string with offsets taken from `text.lowercase()` —
+  lowercasing can change length (Turkish İ) and the offsets then run past the
+  end. Use `indexOf(..., ignoreCase = true)` on the original string.
 
 ## What NOT to do without asking
 

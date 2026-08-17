@@ -12,15 +12,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Checklist
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.PhotoCamera
 import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.RadioButtonChecked
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Send
@@ -36,13 +44,20 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.stackpointer.lists.data.repository.ChecklistItemDraft
 import com.stackpointer.lists.di.currentAppContainer
 import com.stackpointer.lists.recurrence.rruleShortLabel
 import com.stackpointer.lists.repeat.RepeatEditor
@@ -61,7 +76,13 @@ fun CaptureSheetContent(
     // every time the sheet opens, even for structurally-equal targets like
     // two back-to-back CaptureTarget.New() calls.
     val viewModel = remember(sheetKey) {
-        CaptureViewModel(target, container.reminderRepository, container.listRepository, scope)
+        CaptureViewModel(
+            target = target,
+            reminderRepository = container.reminderRepository,
+            listRepository = container.listRepository,
+            checklistRepository = container.checklistRepository,
+            scope = scope
+        )
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -106,6 +127,12 @@ fun CaptureSheetContent(
                     onClearDue = viewModel::clearDue,
                     onOpenRepeat = viewModel::openRepeat,
                     onClearRepeat = viewModel::clearRepeat,
+                    onToggleChecklist = viewModel::toggleChecklist,
+                    onChecklistTextChange = viewModel::updateChecklistItem,
+                    onChecklistToggle = viewModel::toggleChecklistItem,
+                    onChecklistRemove = viewModel::removeChecklistItem,
+                    onChecklistAdd = viewModel::addChecklistItem,
+                    onOpenListPicker = viewModel::openListPicker,
                     onStub = ::showStub,
                     onSend = viewModel::save
                 )
@@ -123,6 +150,12 @@ fun CaptureSheetContent(
                     onCancel = viewModel::closeRepeat,
                     onSave = viewModel::setRepeat
                 )
+                CaptureMode.LIST -> ListPickerContent(
+                    state = state,
+                    onBack = viewModel::collapseToTyping,
+                    onSelect = viewModel::selectList,
+                    onCreate = viewModel::createListAndSelect
+                )
             }
         }
 
@@ -139,6 +172,12 @@ private fun TypingContent(
     onClearDue: () -> Unit,
     onOpenRepeat: () -> Unit,
     onClearRepeat: () -> Unit,
+    onToggleChecklist: () -> Unit,
+    onChecklistTextChange: (Int, String) -> Unit,
+    onChecklistToggle: (Int) -> Unit,
+    onChecklistRemove: (Int) -> Unit,
+    onChecklistAdd: () -> Unit,
+    onOpenListPicker: () -> Unit,
     onStub: (String) -> Unit,
     onSend: () -> Unit
 ) {
@@ -187,6 +226,17 @@ private fun TypingContent(
             }
         }
 
+        if (state.showChecklist) {
+            Spacer(Modifier.height(8.dp))
+            ChecklistSection(
+                items = state.checklist,
+                onTextChange = onChecklistTextChange,
+                onToggle = onChecklistToggle,
+                onRemove = onChecklistRemove,
+                onAdd = onChecklistAdd
+            )
+        }
+
         if (state.parsedFromText) {
             Spacer(Modifier.height(4.dp))
             Text(
@@ -201,9 +251,19 @@ private fun TypingContent(
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             CaptureActionIcon(Icons.Rounded.CalendarToday, "When", active = state.dueAt != null, onClick = onOpenWhen)
             CaptureActionIcon(Icons.Rounded.Place, "Where", onClick = { onStub("Places") })
-            CaptureActionIcon(Icons.Rounded.Checklist, "Checklist", onClick = { onStub("Checklists") })
+            CaptureActionIcon(
+                Icons.Rounded.Checklist,
+                "Checklist",
+                active = state.showChecklist,
+                onClick = onToggleChecklist
+            )
             CaptureActionIcon(Icons.Rounded.PhotoCamera, "Photo", onClick = { onStub("Photo attachments") })
-            CaptureActionIcon(Icons.Rounded.List, "List", onClick = { onStub("Choosing a list") })
+            CaptureActionIcon(
+                Icons.Rounded.List,
+                "List",
+                active = true,
+                onClick = onOpenListPicker
+            )
             Spacer(Modifier.weight(1f))
             Surface(
                 onClick = onSend,
@@ -217,6 +277,175 @@ private fun TypingContent(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ChecklistSection(
+    items: List<ChecklistItemDraft>,
+    onTextChange: (Int, String) -> Unit,
+    onToggle: (Int) -> Unit,
+    onRemove: (Int) -> Unit,
+    onAdd: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        items.forEachIndexed { index, item ->
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                IconButton(onClick = { onToggle(index) }) {
+                    Icon(
+                        imageVector = if (item.isCompleted) {
+                            Icons.Rounded.CheckCircle
+                        } else {
+                            Icons.Rounded.RadioButtonUnchecked
+                        },
+                        contentDescription = if (item.isCompleted) "Tick off" else "Not done yet",
+                        tint = if (item.isCompleted) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        }
+                    )
+                }
+                BasicTextField(
+                    value = item.text,
+                    onValueChange = { onTextChange(index, it) },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(
+                        color = if (item.isCompleted) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onSurface
+                        },
+                        textDecoration = if (item.isCompleted) TextDecoration.LineThrough else null
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.weight(1f),
+                    decorationBox = { inner ->
+                        if (item.text.isEmpty()) {
+                            Text(
+                                text = "List item",
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        inner()
+                    }
+                )
+                IconButton(onClick = { onRemove(index) }) {
+                    Icon(
+                        Icons.Rounded.Close,
+                        contentDescription = "Remove item",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        Surface(onClick = onAdd, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 10.dp)) {
+                Icon(
+                    Icons.Rounded.Add,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+                Text(
+                    text = "Add an item",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ListPickerContent(
+    state: CaptureUiState,
+    onBack: () -> Unit,
+    onSelect: (Long) -> Unit,
+    onCreate: (String) -> Unit
+) {
+    var newListName by remember { mutableStateOf<String?>(null) }
+
+    Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Rounded.KeyboardArrowLeft, contentDescription = "Back")
+            }
+            Text(text = "List", style = MaterialTheme.typography.titleLarge)
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        state.lists.forEach { list ->
+            Surface(onClick = { onSelect(list.id) }, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) {
+                    Icon(
+                        imageVector = if (list.id == state.listId) {
+                            Icons.Rounded.RadioButtonChecked
+                        } else {
+                            Icons.Rounded.RadioButtonUnchecked
+                        },
+                        contentDescription = null,
+                        tint = if (list.id == state.listId) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline
+                        }
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(Color(list.colorArgb))
+                    )
+                    Text(text = list.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+
+        val pendingName = newListName
+        if (pendingName == null) {
+            Surface(
+                onClick = { newListName = "" },
+                color = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null)
+                    Text(text = "New list", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+                TextField(
+                    value = pendingName,
+                    onValueChange = { newListName = it },
+                    placeholder = { Text("List name") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = { onCreate(pendingName) },
+                    enabled = pendingName.isNotBlank()
+                ) {
+                    Icon(Icons.Rounded.Check, contentDescription = "Create list")
+                }
+            }
+        }
+
+        Spacer(Modifier.height(12.dp))
     }
 }
 

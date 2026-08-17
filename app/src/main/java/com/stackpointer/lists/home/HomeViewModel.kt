@@ -3,8 +3,10 @@ package com.stackpointer.lists.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.stackpointer.lists.data.entity.ChecklistItemEntity
 import com.stackpointer.lists.data.entity.ReminderEntity
 import com.stackpointer.lists.data.entity.ReminderListEntity
+import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
 import com.stackpointer.lists.data.repository.ReminderRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +22,8 @@ import java.time.format.DateTimeFormatter
 
 class HomeViewModel(
     private val reminderRepository: ReminderRepository,
-    private val listRepository: ListRepository
+    private val listRepository: ListRepository,
+    checklistRepository: ChecklistRepository
 ) : ViewModel() {
 
     private val selectedListId = MutableStateFlow<Long?>(null)
@@ -30,9 +33,10 @@ class HomeViewModel(
     val uiState: StateFlow<HomeUiState> = combine(
         reminderRepository.observeActive(),
         listRepository.observeLists(),
-        selectedListId
-    ) { reminders, lists, selected ->
-        buildUiState(reminders, lists, selected)
+        selectedListId,
+        checklistRepository.observeAll()
+    ) { reminders, lists, selected, checklistItems ->
+        buildUiState(reminders, lists, selected, checklistItems.groupBy { it.reminderId })
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -54,7 +58,8 @@ class HomeViewModel(
     private fun buildUiState(
         reminders: List<ReminderEntity>,
         lists: List<ReminderListEntity>,
-        selectedListId: Long?
+        selectedListId: Long?,
+        checklistByReminder: Map<Long, List<ChecklistItemEntity>>
     ): HomeUiState {
         val open = reminders.filter { !it.isCompleted }
         val now = Instant.now()
@@ -88,9 +93,9 @@ class HomeViewModel(
             .sortedWith(compareBy(nullsLast<Long>()) { it.dueAt })
 
         val sections = buildList {
-            if (overdue.isNotEmpty()) add(ReminderSection("Overdue", isError = true, overdue.map { it.toCard(now) }))
-            if (dueToday.isNotEmpty()) add(ReminderSection("Today", isError = false, dueToday.map { it.toCard(now) }))
-            if (upcoming.isNotEmpty()) add(ReminderSection("Upcoming", isError = false, upcoming.map { it.toCard(now) }))
+            if (overdue.isNotEmpty()) add(ReminderSection("Overdue", isError = true, overdue.map { it.toCard(now, checklistByReminder) }))
+            if (dueToday.isNotEmpty()) add(ReminderSection("Today", isError = false, dueToday.map { it.toCard(now, checklistByReminder) }))
+            if (upcoming.isNotEmpty()) add(ReminderSection("Upcoming", isError = false, upcoming.map { it.toCard(now, checklistByReminder) }))
         }
 
         return HomeUiState(
@@ -104,7 +109,11 @@ class HomeViewModel(
         )
     }
 
-    private fun ReminderEntity.toCard(now: Instant): ReminderCardUiModel {
+    private fun ReminderEntity.toCard(
+        now: Instant,
+        checklistByReminder: Map<Long, List<ChecklistItemEntity>>
+    ): ReminderCardUiModel {
+        val checklist = checklistByReminder[id].orEmpty()
         val meta = dueAt?.let { epoch ->
             val instant = Instant.ofEpochMilli(epoch)
             val date = instant.atZone(zone).toLocalDate()
@@ -123,17 +132,20 @@ class HomeViewModel(
             isOverdue = dueAt != null && Instant.ofEpochMilli(dueAt) < now,
             isCompleted = isCompleted,
             isImportant = isImportant,
-            repeats = repeatRule != null
+            repeats = repeatRule != null,
+            checklistTotal = checklist.size,
+            checklistDone = checklist.count { it.isCompleted }
         )
     }
 
     class Factory(
         private val reminderRepository: ReminderRepository,
-        private val listRepository: ListRepository
+        private val listRepository: ListRepository,
+        private val checklistRepository: ChecklistRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return HomeViewModel(reminderRepository, listRepository) as T
+            return HomeViewModel(reminderRepository, listRepository, checklistRepository) as T
         }
     }
 }

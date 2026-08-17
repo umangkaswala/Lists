@@ -3,6 +3,8 @@ package com.stackpointer.lists.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.stackpointer.lists.data.entity.ChecklistItemEntity
+import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
 import com.stackpointer.lists.data.repository.ReminderRepository
 import com.stackpointer.lists.recurrence.RRule
@@ -27,21 +29,24 @@ data class ReminderDetailUiState(
     val listName: String = "",
     val listColorArgb: Int = 0,
     val isImportant: Boolean = false,
-    val isCompleted: Boolean = false
+    val isCompleted: Boolean = false,
+    val checklist: List<ChecklistItemEntity> = emptyList()
 )
 
 class ReminderDetailViewModel(
     private val reminderId: Long,
     private val reminderRepository: ReminderRepository,
-    listRepository: ListRepository
+    listRepository: ListRepository,
+    private val checklistRepository: ChecklistRepository
 ) : ViewModel() {
 
     private val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
 
     val uiState: StateFlow<ReminderDetailUiState> = combine(
         reminderRepository.observeById(reminderId),
-        listRepository.observeLists()
-    ) { reminder, lists ->
+        listRepository.observeLists(),
+        checklistRepository.observeForReminder(reminderId)
+    ) { reminder, lists, checklist ->
         if (reminder == null) {
             ReminderDetailUiState(isLoading = false, found = false)
         } else {
@@ -63,7 +68,8 @@ class ReminderDetailViewModel(
                 listName = list?.name ?: "",
                 listColorArgb = list?.colorArgb ?: 0,
                 isImportant = reminder.isImportant,
-                isCompleted = reminder.isCompleted
+                isCompleted = reminder.isCompleted,
+                checklist = checklist
             )
         }
     }.stateIn(
@@ -84,6 +90,10 @@ class ReminderDetailViewModel(
         }
     }
 
+    fun toggleChecklistItem(itemId: Long, completed: Boolean) {
+        viewModelScope.launch { checklistRepository.setCompleted(itemId, completed) }
+    }
+
     fun toggleImportant() {
         viewModelScope.launch {
             reminderRepository.setImportant(reminderId, !uiState.value.isImportant)
@@ -93,11 +103,14 @@ class ReminderDetailViewModel(
     class Factory(
         private val reminderId: Long,
         private val reminderRepository: ReminderRepository,
-        private val listRepository: ListRepository
+        private val listRepository: ListRepository,
+        private val checklistRepository: ChecklistRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ReminderDetailViewModel(reminderId, reminderRepository, listRepository) as T
+            return ReminderDetailViewModel(
+                reminderId, reminderRepository, listRepository, checklistRepository
+            ) as T
         }
     }
 }

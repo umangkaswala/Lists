@@ -8,10 +8,73 @@ import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 import java.time.ZoneId
 
+/**
+ * Everything needed to put one reminder back exactly as it was.
+ *
+ * Swipe-to-complete and swipe-to-snooze both offer Undo, and both can change
+ * more than one field — completing a *repeating* reminder moves its due date
+ * instead of setting isCompleted — so undo can't be "flip the one flag back".
+ */
+data class ReminderUndoSnapshot(
+    val id: Long,
+    val dueAt: Long?,
+    val isAllDay: Boolean,
+    val isCompleted: Boolean,
+    val completedAt: Long?
+)
+
 class ReminderRepository(private val reminderDao: ReminderDao) {
     fun observeActive(): Flow<List<ReminderEntity>> = reminderDao.getActive()
 
     fun observeById(id: Long): Flow<ReminderEntity?> = reminderDao.observeById(id)
+
+    fun search(query: String): Flow<List<ReminderEntity>> = reminderDao.search(escapeForLike(query))
+
+    companion object {
+        /**
+         * Neutralises SQL LIKE wildcards in user-typed text. Without this,
+         * searching for "100%" or "a_b" matches everything, because `%` and
+         * `_` are wildcards. Pairs with `ESCAPE '\'` in the DAO query; the
+         * backslash itself has to be escaped first or it would swallow the
+         * character after it.
+         */
+        fun escapeForLike(query: String): String = query
+            .replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+    }
+
+    suspend fun snapshotFor(id: Long): ReminderUndoSnapshot? {
+        val current = reminderDao.getById(id) ?: return null
+        return ReminderUndoSnapshot(
+            id = current.id,
+            dueAt = current.dueAt,
+            // Snooze clears isAllDay, so undo has to restore it too or an
+            // all-day reminder is permanently converted to a timed one.
+            isAllDay = current.isAllDay,
+            isCompleted = current.isCompleted,
+            completedAt = current.completedAt
+        )
+    }
+
+    suspend fun restore(snapshot: ReminderUndoSnapshot) {
+        val current = reminderDao.getById(snapshot.id) ?: return
+        reminderDao.update(
+            current.copy(
+                dueAt = snapshot.dueAt,
+                isAllDay = snapshot.isAllDay,
+                isCompleted = snapshot.isCompleted,
+                completedAt = snapshot.completedAt
+            )
+        )
+    }
+
+    /** Pushes a reminder's due time out by [minutes] from now. */
+    suspend fun snooze(id: Long, minutes: Long) {
+        val current = reminderDao.getById(id) ?: return
+        val snoozedTo = Instant.now().plusSeconds(minutes * 60).toEpochMilli()
+        reminderDao.update(current.copy(dueAt = snoozedTo, isAllDay = false))
+    }
 
     suspend fun createReminder(
         listId: Long,

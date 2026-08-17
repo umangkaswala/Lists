@@ -7,8 +7,14 @@ data class ReminderCardUiModel(
     val isOverdue: Boolean,
     val isCompleted: Boolean,
     val isImportant: Boolean,
-    val repeats: Boolean = false
-)
+    val repeats: Boolean = false,
+    val checklistTotal: Int = 0,
+    val checklistDone: Int = 0
+) {
+    val hasChecklist: Boolean get() = checklistTotal > 0
+    val checklistProgress: Float
+        get() = if (checklistTotal == 0) 0f else checklistDone.toFloat() / checklistTotal
+}
 
 data class ReminderSection(
     val label: String,

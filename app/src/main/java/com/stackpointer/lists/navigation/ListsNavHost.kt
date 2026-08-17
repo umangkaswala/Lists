@@ -22,10 +22,14 @@ import com.stackpointer.lists.capture.CaptureTarget
 import com.stackpointer.lists.detail.ReminderDetailScreen
 import com.stackpointer.lists.home.HomeScreen
 import com.stackpointer.lists.lists.ListsScreen
+import com.stackpointer.lists.search.SearchScreen
+import com.stackpointer.lists.today.TodayScreen
 
 object ListsDestinations {
     const val HOME = "home"
     const val LISTS = "lists"
+    const val TODAY = "today"
+    const val SEARCH = "search"
     const val REMINDER_DETAIL = "reminder/{reminderId}"
 
     fun reminderDetail(reminderId: Long) = "reminder/$reminderId"
@@ -54,11 +58,26 @@ fun ListsNavHost() {
                 HomeScreen(
                     onOpenLists = { navController.navigate(ListsDestinations.LISTS) },
                     onOpenReminder = { id -> navController.navigate(ListsDestinations.reminderDetail(id)) },
-                    onOpenCapture = { target -> openCapture(target) }
+                    onOpenCapture = { target -> openCapture(target) },
+                    onOpenSearch = { navController.navigate(ListsDestinations.SEARCH) },
+                    onOpenToday = { navController.navigate(ListsDestinations.TODAY) }
                 )
             }
             composable(ListsDestinations.LISTS) {
                 ListsScreen(onBack = { navController.popBackStack() })
+            }
+            composable(ListsDestinations.TODAY) {
+                TodayScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenReminder = { id -> navController.navigate(ListsDestinations.reminderDetail(id)) },
+                    onAddReminder = { openCapture(CaptureTarget.New()) }
+                )
+            }
+            composable(ListsDestinations.SEARCH) {
+                SearchScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenReminder = { id -> navController.navigate(ListsDestinations.reminderDetail(id)) }
+                )
             }
             composable(
                 route = ListsDestinations.REMINDER_DETAIL,

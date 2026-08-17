@@ -1,6 +1,8 @@
 package com.stackpointer.lists.detail
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,9 +21,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.CalendarToday
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.List
+import androidx.compose.material.icons.rounded.RadioButtonUnchecked
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Snooze
@@ -60,7 +64,8 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
         factory = ReminderDetailViewModel.Factory(
             reminderId,
             container.reminderRepository,
-            container.listRepository
+            container.listRepository,
+            container.checklistRepository
         )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -124,6 +129,9 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
+                // A reminder with a checklist, a note and history overflows a
+                // phone screen; without this the bottom cards are unreachable.
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
@@ -159,6 +167,62 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                         onClick = onEdit,
                         showDivider = false
                     )
+                }
+            }
+
+            if (state.checklist.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        val done = state.checklist.count { it.isCompleted }
+                        Text(
+                            text = "CHECKLIST · $done of ${state.checklist.size}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        state.checklist.forEach { item ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                IconButton(
+                                    onClick = { viewModel.toggleChecklistItem(item.id, !item.isCompleted) }
+                                ) {
+                                    Icon(
+                                        imageVector = if (item.isCompleted) {
+                                            Icons.Rounded.CheckCircle
+                                        } else {
+                                            Icons.Rounded.RadioButtonUnchecked
+                                        },
+                                        contentDescription = if (item.isCompleted) {
+                                            "Tick off ${item.text}"
+                                        } else {
+                                            "${item.text} not done yet"
+                                        },
+                                        tint = if (item.isCompleted) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.outline
+                                        }
+                                    )
+                                }
+                                Text(
+                                    text = item.text,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    textDecoration = if (item.isCompleted) TextDecoration.LineThrough else null,
+                                    color = if (item.isCompleted) {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
 
