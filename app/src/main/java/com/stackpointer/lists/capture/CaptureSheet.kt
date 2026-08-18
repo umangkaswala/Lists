@@ -127,8 +127,8 @@ fun CaptureSheetContent(
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
 
-    LaunchedEffect(state.savedSuccessfully) {
-        if (state.savedSuccessfully) onDismiss()
+    LaunchedEffect(state.savedSuccessfully, state.cancelled) {
+        if (state.savedSuccessfully || state.cancelled) onDismiss()
     }
 
     // A ModalBottomSheet renders in its own popup window, above the rest of

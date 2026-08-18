@@ -67,6 +67,12 @@ data class CaptureUiState(
     val isEditing: Boolean = false,
     val isSaving: Boolean = false,
     val savedSuccessfully: Boolean = false,
+    /**
+     * Set when the sheet should close *without* writing anything — Repeat's
+     * Cancel during a single-property edit, where there is no typing view
+     * behind the panel to fall back to.
+     */
+    val cancelled: Boolean = false,
     val notFound: Boolean = false
 ) {
     val canSave: Boolean get() = title.isNotBlank() && !isSaving
@@ -416,12 +422,47 @@ class CaptureViewModel(
         _uiState.value = _uiState.value.copy(places = placeRepository.observePlaces().first())
     }
 
+    /**
+     * True when the sheet was opened straight onto one sub-editor to change one
+     * property of an existing reminder — Detail's Due/List/Repeat/Place rows.
+     *
+     * Those rows read as "set this to that", not "start a draft": leaving the
+     * editor is the whole interaction, so it commits and closes rather than
+     * dropping the user in the typing view where swiping away would silently
+     * discard the change. Opening the sheet to *edit* (or to create) keeps the
+     * draft behaviour, because there the send button is the obvious next step.
+     */
+    private val commitOnSubEditorExit: Boolean =
+        target is CaptureTarget.Edit && target.initialMode != null
+
+    /**
+     * Leaving a sub-editor. Commits and closes for a single-property edit,
+     * otherwise falls back to the typing view.
+     *
+     * The `canSave` guard matters: [save] refuses a blank title and would
+     * otherwise leave the back arrow doing nothing at all, trapping the user in
+     * a panel with no way out.
+     */
+    private fun finishSubEditor() {
+        if (commitOnSubEditorExit && _uiState.value.canSave) {
+            save()
+        } else {
+            _uiState.value = _uiState.value.copy(mode = CaptureMode.TYPING)
+        }
+    }
+
     fun collapseToTyping() {
-        _uiState.value = _uiState.value.copy(mode = CaptureMode.TYPING)
+        finishSubEditor()
     }
 
     fun closeRepeat() {
-        _uiState.value = _uiState.value.copy(mode = modeBeforeRepeat)
+        if (commitOnSubEditorExit) {
+            // Cancel means cancel: close without writing, rather than committing
+            // on the way past like the other exits do.
+            _uiState.value = _uiState.value.copy(cancelled = true)
+        } else {
+            _uiState.value = _uiState.value.copy(mode = modeBeforeRepeat)
+        }
     }
 
     // The due date the All day switch made up on the user's behalf, so that
@@ -526,6 +567,7 @@ class CaptureViewModel(
             mode = modeBeforeRepeat,
             parsedFromText = false
         )
+        if (commitOnSubEditorExit && _uiState.value.canSave) save()
     }
 
     // --- Checklist -------------------------------------------------------
@@ -596,7 +638,8 @@ class CaptureViewModel(
     }
 
     fun selectList(listId: Long) {
-        _uiState.value = _uiState.value.copy(listId = listId, mode = CaptureMode.TYPING)
+        _uiState.value = _uiState.value.copy(listId = listId)
+        finishSubEditor()
     }
 
     /** Inline "New list" from the picker, so capture isn't interrupted by a trip to Lists. */
@@ -612,9 +655,9 @@ class CaptureViewModel(
             )
             _uiState.value = _uiState.value.copy(
                 lists = listRepository.observeLists().first(),
-                listId = newId,
-                mode = CaptureMode.TYPING
+                listId = newId
             )
+            finishSubEditor()
         }
     }
 

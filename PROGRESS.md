@@ -1309,19 +1309,41 @@ like a directional bug, when it was the test sitting precisely on the rounding
 boundary. The reordered list survived a save, reopened from Detail in the right
 order, and shared in that order too. 98 unit tests pass; no crash in logcat.
 
+### The eighth code-review finding — property rows now commit (Umang's call, 2026-08-18)
+
+The review's remaining finding was that tapping Detail's "List" row, picking a
+list, and swiping the sheet away discarded the change silently. That was not a
+regression — the sheet has always been a draft for every field — but the mental
+model differs: "Edit" invites a draft, while tapping one property row reads as
+"set this to that". Put to Umang as a product question; he said to go with the
+recommendation, which was to make it commit.
+
+**Now: opening the sheet straight onto one sub-editor commits and closes when
+that editor is left.** Tapping Due, List, Repeat or Place on a reminder's page
+changes exactly that one thing and returns to the page. Everything else is
+untouched — the Edit button, the capture pill and "Add to Today" all still hold
+a draft until the send button is pressed.
+
+Two details worth recording:
+
+- **Repeat's Cancel closes without writing.** Every other exit commits on the
+  way past, but a button labelled Cancel that saves anyway would be a lie. It
+  needed a separate "close without saving" signal on the state, since the sheet
+  previously only ever closed on a successful save.
+- **The commit is guarded by `canSave`.** `save()` refuses a blank title, so
+  without the guard the back arrow would have done nothing at all and trapped
+  the user in a panel with no way out.
+
+**Verified on the emulator, all four paths plus the non-regression:** the List
+row moved the reminder from Work to Personal and the Home tiles followed it
+(Personal 7→8, Work 2→1) — proving it reached the database, not just the
+screen; the Due row's back arrow committed "Tomorrow 9 am" and the "Overdue by 4
+hours" line disappeared; Repeat's Save committed "Every Wednesday"; Repeat's
+Cancel left it reading "None". And the path that must *not* change: Edit → type
+into the title → swipe the sheet away still discards, exactly as before.
+
 ### Deliberately NOT fixed — these need Umang's call
 
-- **Editing one property from Detail is still a draft, not an edit** — the
-  eighth code-review finding. Tapping Detail's "List" row opens the picker,
-  picking a list returns to the typing view, and the change is only kept if the
-  send button is pressed; swiping the sheet away discards it silently. That is
-  exactly how the sheet has always behaved for every field, so this is not a
-  regression — but the *mental model* is different. "Edit" invites a draft;
-  tapping a single property row reads as "set this to that", and the design says
-  the row "opens that editor directly". **Question for Umang: should finishing a
-  property-row edit save and close on its own?** Making it do so is a small
-  change; leaving it consistent with the rest of the sheet is also defensible,
-  which is why it is here rather than done.
 - **Today's `filter_list` and overflow buttons are still dead.** S04 *draws*
   both but the spec text never says what either does. Guessing is how you end up
   with a filter nobody wants; the Completed screen's select-mode icon was already
