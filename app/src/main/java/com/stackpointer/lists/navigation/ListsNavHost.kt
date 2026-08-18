@@ -6,9 +6,11 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -20,12 +22,16 @@ import androidx.navigation.navArgument
 import com.stackpointer.lists.capture.CaptureSheetContent
 import com.stackpointer.lists.capture.CaptureTarget
 import com.stackpointer.lists.detail.ReminderDetailScreen
+import com.stackpointer.lists.di.currentAppContainer
 import com.stackpointer.lists.home.HomeScreen
 import com.stackpointer.lists.lists.ListsScreen
+import com.stackpointer.lists.onboarding.OnboardingRoute
 import com.stackpointer.lists.search.SearchScreen
 import com.stackpointer.lists.today.TodayScreen
+import kotlinx.coroutines.flow.first
 
 object ListsDestinations {
+    const val ONBOARDING = "onboarding"
     const val HOME = "home"
     const val LISTS = "lists"
     const val TODAY = "today"
@@ -37,7 +43,10 @@ object ListsDestinations {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ListsNavHost() {
+fun ListsNavHost(
+    pendingReminderId: Long? = null,
+    onPendingReminderHandled: () -> Unit = {}
+) {
     val navController = rememberNavController()
     var captureTarget by remember { mutableStateOf<CaptureTarget?>(null) }
     // CaptureTarget.New() instances are structurally equal to each other (data
@@ -52,8 +61,41 @@ fun ListsNavHost() {
         captureRequestId++
     }
 
+    // Read once, not observed: marking onboarding complete part-way through a
+    // session must not swap the NavHost's start destination out from under the
+    // back stack. Null means "not known yet" — one blank frame is better than
+    // flashing Home and then jumping to onboarding.
+    val container = currentAppContainer()
+    val onboardingCompleted by produceState<Boolean?>(initialValue = null, container) {
+        value = container.onboardingStore.isCompleted.first()
+    }
+    val startDestination = when (onboardingCompleted) {
+        null -> null
+        true -> ListsDestinations.HOME
+        false -> ListsDestinations.ONBOARDING
+    }
+
+    // A tapped reminder notification. Waits for the start destination to be
+    // resolved, otherwise the navigate() would race the NavHost's own creation.
+    LaunchedEffect(pendingReminderId, startDestination) {
+        if (pendingReminderId != null && startDestination != null) {
+            navController.navigate(ListsDestinations.reminderDetail(pendingReminderId))
+            onPendingReminderHandled()
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
-        NavHost(navController = navController, startDestination = ListsDestinations.HOME) {
+        if (startDestination == null) return@Box
+        NavHost(navController = navController, startDestination = startDestination) {
+            composable(ListsDestinations.ONBOARDING) {
+                OnboardingRoute(
+                    onFinished = {
+                        navController.navigate(ListsDestinations.HOME) {
+                            popUpTo(ListsDestinations.ONBOARDING) { inclusive = true }
+                        }
+                    }
+                )
+            }
             composable(ListsDestinations.HOME) {
                 HomeScreen(
                     onOpenLists = { navController.navigate(ListsDestinations.LISTS) },

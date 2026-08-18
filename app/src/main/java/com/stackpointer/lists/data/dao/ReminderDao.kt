@@ -22,6 +22,16 @@ interface ReminderDao {
     suspend fun countActive(): Int
 
     /**
+     * Every row, unfiltered — completed and soft-deleted included.
+     *
+     * The alarm scheduler needs the rows it must *cancel* as much as the ones
+     * it must schedule, and filtering here would leave a completed reminder's
+     * alarm registered forever.
+     */
+    @Query("SELECT * FROM reminders")
+    suspend fun getAllForScheduling(): List<ReminderEntity>
+
+    /**
      * Full-text-ish search across a reminder's title, note and checklist item
      * text. LIKE with a leading wildcard can't use an index, but this table is
      * a personal reminder list — hundreds of rows, not millions — so the

@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stackpointer.lists.capture.CaptureTarget
+import com.stackpointer.lists.onboarding.AlertPermissionBanner
 import com.stackpointer.lists.di.currentAppContainer
 import com.stackpointer.lists.ui.theme.ListsCorner
 
@@ -81,7 +82,13 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                SearchBarRow(onOpenLists = onOpenLists, onOpenSearch = onOpenSearch)
+                // The banner shares this item, and carries its own top padding,
+                // so that when it renders nothing (the normal case) it leaves no
+                // gap behind — a separate item would always cost 12dp of spacing.
+                Column {
+                    SearchBarRow(onOpenLists = onOpenLists, onOpenSearch = onOpenSearch)
+                    AlertPermissionBanner(modifier = Modifier.padding(top = 12.dp))
+                }
             }
 
             item {

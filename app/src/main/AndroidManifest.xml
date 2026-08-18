@@ -1,6 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Runtime permission from API 33; below that notifications are on by
+         default and only switchable in system settings. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- SCHEDULE_EXACT_ALARM (not USE_EXACT_ALARM): user-set reminders are
+         allowed either way under Play policy, but SCHEDULE_EXACT_ALARM is the
+         revocable one the user stays in control of, which is what the
+         onboarding screen's "Alarms & reminders" row asks for. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- Declared now so the onboarding screen's optional Location row is a
+         working control rather than a dead one. Nothing reads location until
+         Phase 7 (places / geofencing). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+
+    <!-- Alarms are wiped by a reboot; without this we'd never hear about it. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Deliberately NOT declared, all three are Google Play policy-restricted:
+         USE_EXACT_ALARM                      - reserved for alarm-clock and calendar apps
+         USE_FULL_SCREEN_INTENT               - reserved for calling and alarm-clock apps
+         REQUEST_IGNORE_BATTERY_OPTIMIZATIONS - use the settings-list intent instead -->
+
     <application
         android:name=".ListsApplication"
         android:allowBackup="true"
@@ -10,15 +33,42 @@
         android:theme="@style/Theme.Lists"
         android:supportsRtl="true">
 
+        <!-- singleTop: tapping a reminder notification must reuse the running
+             activity and deliver the id through onNewIntent, not stack a second
+             copy of the app on top of itself. -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.Lists">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Triggered only by our own PendingIntents, so not exported. -->
+        <receiver
+            android:name=".notifications.ReminderAlarmReceiver"
+            android:exported="false" />
+        <receiver
+            android:name=".notifications.ReminderActionReceiver"
+            android:exported="false" />
+
+        <!-- These are system broadcasts, sent from a different UID: exported
+             MUST be true here or the receiver silently never fires. Not
+             directBootAware — the Room database is credential-encrypted and
+             can't be opened before the first unlock after a reboot. -->
+        <receiver
+            android:name=".notifications.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
 
         <!-- The widget picker reads android:label from the receiver, not from
              the <appwidget-provider> metadata. -->

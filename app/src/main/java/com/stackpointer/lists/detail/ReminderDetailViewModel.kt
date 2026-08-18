@@ -90,6 +90,18 @@ class ReminderDetailViewModel(
         }
     }
 
+    /** Matches Today's swipe-to-snooze, so the two don't disagree. */
+    fun snooze() {
+        viewModelScope.launch {
+            if (uiState.value.dueText == null) {
+                _messages.tryEmit("This reminder has no time to snooze")
+                return@launch
+            }
+            reminderRepository.snooze(reminderId, SNOOZE_MINUTES)
+            _messages.tryEmit("Snoozed for $SNOOZE_MINUTES minutes")
+        }
+    }
+
     fun toggleChecklistItem(itemId: Long, completed: Boolean) {
         viewModelScope.launch { checklistRepository.setCompleted(itemId, completed) }
     }
@@ -98,6 +110,10 @@ class ReminderDetailViewModel(
         viewModelScope.launch {
             reminderRepository.setImportant(reminderId, !uiState.value.isImportant)
         }
+    }
+
+    private companion object {
+        const val SNOOZE_MINUTES = 30L
     }
 
     class Factory(

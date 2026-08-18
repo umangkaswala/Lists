@@ -4,12 +4,12 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phase 4 complete and pushed. Start Phase 5 next.**
+**Current status: Phase 5 built, emulator-verified and code-reviewed.
+Awaiting Umang's physical-device pass. Start Phase 6 next.**
 
-**Phase 5 is one of the four physical-device-critical phases** (5, 7, 10, 11)
-and PLAN.md/CLAUDE.md both call for running the **Plan agent** before starting
-it. Notifications and exact alarms behave very differently on an emulator, so
-this is the first phase that genuinely needs Umang's own phone to verify.
+Phase 5's remaining verification needs **Umang's own phone** — real Doze, real
+Samsung battery management, and a reboot with a secure lock screen. See the
+"Still needs the phone" list in the Phase 5 entry below.
 
 **Process note (2026-08-17):** from Phase 2 onward, every phase gets a
 `/code-review` pass on the diff after self-verification and before
@@ -328,7 +328,133 @@ terms, but the seams cost more — of the six review findings, four were in the
 boundary between my data layer and the agents' screens. Fetching the design
 specs for them up front would have removed most of the rework.
 
-## Phases 5–12 — ⬜ NOT STARTED
+## Phase 5 — Notifications, exact alarms, onboarding permissions — ✅ BUILT (2026-08-18)
+
+Written in the main session rather than split across subagents: this phase is
+one tightly-coupled reliability surface, and Phase 4's lesson was that the
+seams between parallel workers are where the bugs collect. The one piece that
+*was* delegated — the Onboarding screen — is pure UI with a value-in/value-out
+signature, and this time the design spec was fetched and pasted into the brief
+up front (the fix for Phase 4's DesignSync problem). It came back clean.
+
+**The `Plan` agent ran first**, as PLAN.md/CLAUDE.md require for this phase. It
+was worth it: it caught the `USE_EXACT_ALARM` Play-policy trap, the
+PendingIntent-identity-ignores-extras bug, the `exported="true"` requirement for
+boot receivers, and the direct-boot limitation below — all before any code.
+
+Built:
+- **`notifications/AlarmPlan.kt`** — pure Kotlin, no Android imports: decides
+  which reminders get an alarm and when. **10 unit tests** (all-day → 09:00,
+  past-due skipped, completed/deleted excluded, cap + horizon, one alarm per
+  repeating series, DST). Same approach that made the RRULE engine provable.
+- **`notifications/AlarmScheduler.kt`** — the Android side. Every mutation
+  triggers a **full idempotent re-sync** rather than per-reminder scheduling,
+  which kills a whole family of bugs at once (stale alarm after an edit, orphan
+  after a cascading list delete, double alarm after undo). Requests are
+  conflated onto `applicationScope`, and the sync body is behind a `Mutex`.
+- **`ReminderAlarms`** — a two-method, Android-free interface the repositories
+  depend on, so `ReminderRepository`/`ListRepository` can trigger scheduling
+  without importing the framework and stay unit-testable.
+- **Notification** (design S17): title, `time · repeats … · list` subtitle, and
+  **Done / 10 min / 1 hour** actions; tapping the body deep-links to Detail.
+- **Receivers**: alarm → notify (`goAsync()`), Done/Snooze, and a boot receiver
+  covering `BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, `TIME_SET` and
+  `TIMEZONE_CHANGED`, enqueueing a WorkManager job.
+- **Onboarding screen** (design S01) with all three permission rows live, shown
+  once on first launch, gated by a DataStore flag.
+- **Home permission banner** — appears when notifications are off or exact
+  alarms are denied, because both failures are otherwise completely silent.
+- Detail's previously-stubbed **Snooze** button now works (30 min, matching
+  Today's swipe).
+
+**Verified on the `Pixel_9` emulator (Android 16), not just compiled:**
+- Set a reminder, **locked the screen**, and it fired at exactly the right
+  minute with the design's layout and all three action buttons.
+- **Tapped Done on a repeating reminder → it rolled forward to the next weekday
+  and re-armed its alarm automatically** (Tue 00:16 → Wed 00:16). This is the
+  single most important behaviour in the phase.
+- Snooze from the notification moved the due time and re-scheduled.
+- **Rebooted the emulator**: logcat shows the process started *for* the boot
+  broadcast, the worker ran, and both alarms came back — with the app never
+  opened. Alarms show `exactAllowReason=permission` and `flags=0x5`
+  (`STANDALONE | ALLOW_WHILE_IDLE`), i.e. the Doze-permitted exact kind.
+- Onboarding's three rows: the real POST_NOTIFICATIONS dialog, the real
+  exact-alarm settings screen, and each row ticking green afterwards —
+  including the exact-alarm one, which is granted *outside* the app and so
+  relies on the on-resume re-check.
+- Revoked notifications with `pm revoke` → banner appeared → tapped it →
+  permission dialog → banner disappeared.
+- Ticking a reminder complete **in the app** clears its notification.
+- **Five reminders fired unattended across nine hours** while the session was
+  idle — an accidental but genuinely useful soak test.
+- 85 unit tests pass.
+
+**`/code-review` (high) found eight issues, all real, all fixed:**
+1. Marking onboarding complete ran on `rememberCoroutineScope()` and was
+   cancelled by the navigation that immediately followed — onboarding could
+   reappear forever. Exactly the scope-lifetime trap CLAUDE.md already warns
+   about, and which `ReminderAlarms`' own doc comment describes.
+2. Completing, snoozing or deleting a reminder **in the app** left its
+   notification sitting in the shade with live Done/Snooze buttons. Now handled
+   centrally in the re-sync, so no call site has to remember.
+3. Rotating the phone after opening a reminder from a notification pushed
+   Detail onto the stack a second time (the intent extra was never consumed).
+4. A `TIME_SET` broadcast arriving just after boot — exactly when a phone
+   corrects its clock off the network — cancelled the boot job via a shared
+   unique-work name, silently dropping the missed-reminder catch-up.
+5. `syncAll()` could run concurrently from the receiver and the boot worker;
+   one pass's cancel-all could wipe alarms the other had just written.
+6. Snoozing a *completed* reminder wrote a future due date that nothing would
+   ever schedule — the snooze silently vanished.
+7. POST_NOTIFICATIONS was only ever requested from the one-shot onboarding
+   screen. Skip it, or deny twice, and the app would never alert again with no
+   way back. Hence the Home banner.
+8. The exact-alarm permission was re-read once per alarm (a binder call) inside
+   the scheduling loop — ~800 round-trips per sync at the cap. Hoisted.
+
+**Still needs Umang's phone — I can't honestly sign these off on an emulator:**
+- **Real Doze.** The emulator is permanently "plugged in" and never truly
+  sleeps. Test: set a reminder ~45 minutes out, screen off, phone left still
+  and unplugged.
+- **Samsung's battery management.** "Sleeping apps" / "Deep sleeping apps" /
+  "Put unused apps to sleep" don't exist on an AOSP emulator and are the most
+  common real-world cause of missed reminders. If a reminder is missed, check
+  Settings → Battery → Background usage limits *before* assuming a code bug.
+- **Reboot with a PIN/fingerprint lock** — see the direct-boot limitation below.
+- Actual sound, vibration, lock-screen presentation and Do Not Disturb.
+
+**Known limitation, deliberate and worth knowing:** after a reboot, reminders
+are **not rescheduled until the phone is unlocked once**. The reminders database
+is credential-encrypted, so a direct-boot-aware receiver would run before it can
+be opened and would have nothing to read. Fixing it properly means keeping a
+shadow copy of "id + due time" in device-protected storage — real, self-contained
+work, better placed in Phase 12 hardening than bolted on here.
+
+**Judgment calls worth flagging (mine, not pre-approved in PLAN.md):**
+- **All-day reminders alert at 09:00 local.** They had to alert at *some* time;
+  midnight would wake people up. Should become a Settings option in Phase 9.
+- **Notification snooze offers 10 min and 1 hour.** The design shows four chips
+  (10 min / 1 hour / Tomorrow / When I get home) but Android allows three
+  actions, and "When I get home" needs Phase 7's places.
+- **Reminders missed while the phone was off only alert if they came due within
+  the last hour.** Waking to a burst of overnight notifications would be worse
+  than the red Overdue section already on Home.
+- **A repeating reminder that's never completed alerts once and then not again**
+  until it's completed, because roll-forward happens on completion. Consistent
+  with the existing model, but worth seeing before it's baked in.
+- **No full-screen "rings until dismissed" alarm-style reminder.** Android 14
+  restricts that to calling and alarm-clock apps and Play revokes it for others.
+- **`SCHEDULE_EXACT_ALARM`, not `USE_EXACT_ALARM`.** The latter never has to be
+  asked for but Play restricts it to alarm-clock and calendar apps.
+- **`ACCESS_FINE_LOCATION` is declared now** (nothing reads it until Phase 7) so
+  onboarding's Location row is a working control rather than a dead one.
+
+**Pre-existing cosmetic issue noticed, not fixed:** Home's Overdue/Today
+grouping is computed when the reminder data changes, not on a clock tick, so
+leaving the app open past a due time doesn't re-group it until something else
+changes. Phase 1 behaviour, unrelated to this phase's work.
+
+## Phases 6–12 — ⬜ NOT STARTED
 
 See PLAN.md for full descriptions of each.
 

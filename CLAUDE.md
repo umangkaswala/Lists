@@ -201,6 +201,30 @@ the resized screenshot image.
 - Don't index a string with offsets taken from `text.lowercase()` —
   lowercasing can change length (Turkish İ) and the offsets then run past the
   end. Use `indexOf(..., ignoreCase = true)` on the original string.
+- **A `PendingIntent`'s identity ignores its extras.** Two alarms built as
+  `Intent(ctx, Receiver::class)` + `putExtra(id)` with the same request code
+  are *the same* PendingIntent, so each new reminder silently replaces the
+  previous one — the classic "only my newest reminder ever fires". Give each a
+  distinct `data` URI (`lists://reminder/$id`) as well as a distinct request
+  code. See `AlarmScheduler.alarmPendingIntent`.
+- **A notification channel is immutable once created.** Importance, sound and
+  vibration can never be changed by the app afterwards, only by the user —
+  changing them in code needs a *new channel id*, which resets the user's own
+  tweaks. Settle them before shipping.
+- **Receivers for system broadcasts need `android:exported="true"`**
+  (`BOOT_COMPLETED` and friends come from another UID). Exported="false" means
+  they simply never fire, with nothing in the log to say why. Receivers
+  triggered only by our own PendingIntents stay `exported="false"`.
+- `onReceive` runs on the main thread and Room refuses main-thread queries, so
+  any DB work needs `goAsync()` — and `pendingResult.finish()` must run on
+  every path or the device is held awake.
+- Anything kicked off from a Compose scope that outlives the screen must run on
+  `AppContainer.applicationScope`. `rememberCoroutineScope()` is cancelled when
+  the composition goes away, so a `popUpTo(inclusive)` navigation can kill a
+  DataStore write mid-flight (this bit onboarding's "don't show again" flag).
+- Driving the Capture sheet over adb: tapping the pill opens the sheet but does
+  **not** focus its text field. Tap the pill, then tap the `EditText` bounds,
+  *then* `input text` — otherwise the text goes to whatever had focus before.
 
 ## What NOT to do without asking
 

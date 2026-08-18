@@ -5,7 +5,10 @@ import com.stackpointer.lists.data.entity.ReminderListEntity
 import kotlinx.coroutines.flow.Flow
 import java.time.Instant
 
-class ListRepository(private val listDao: ReminderListDao) {
+class ListRepository(
+    private val listDao: ReminderListDao,
+    private val alarms: ReminderAlarms = ReminderAlarms.None
+) {
     fun observeLists(): Flow<List<ReminderListEntity>> = listDao.getAll()
 
     suspend fun createList(name: String, colorArgb: Int, position: Int): Long {
@@ -25,6 +28,10 @@ class ListRepository(private val listDao: ReminderListDao) {
 
     suspend fun deleteList(list: ReminderListEntity) {
         listDao.delete(list)
+        // ReminderEntity's foreign key cascades, so this hard-deletes every
+        // reminder in the list. Their alarms would otherwise stay registered
+        // and fire for rows that no longer exist.
+        alarms.requestSync()
     }
 
     suspend fun reorder(lists: List<ReminderListEntity>) {

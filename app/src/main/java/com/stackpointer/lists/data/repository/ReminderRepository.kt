@@ -23,7 +23,12 @@ data class ReminderUndoSnapshot(
     val completedAt: Long?
 )
 
-class ReminderRepository(private val reminderDao: ReminderDao) {
+class ReminderRepository(
+    private val reminderDao: ReminderDao,
+    // Defaults to the no-op so tests and previews don't need the Android
+    // alarm machinery. Production wiring is in AppContainer.
+    private val alarms: ReminderAlarms = ReminderAlarms.None
+) {
     fun observeActive(): Flow<List<ReminderEntity>> = reminderDao.getActive()
 
     fun observeById(id: Long): Flow<ReminderEntity?> = reminderDao.observeById(id)
@@ -67,13 +72,27 @@ class ReminderRepository(private val reminderDao: ReminderDao) {
                 completedAt = snapshot.completedAt
             )
         )
+        alarms.requestSync()
     }
 
     /** Pushes a reminder's due time out by [minutes] from now. */
     suspend fun snooze(id: Long, minutes: Long) {
         val current = reminderDao.getById(id) ?: return
         val snoozedTo = Instant.now().plusSeconds(minutes * 60).toEpochMilli()
-        reminderDao.update(current.copy(dueAt = snoozedTo, isAllDay = false))
+        // Clearing isCompleted matters: snoozing an already-completed reminder
+        // would otherwise write a future dueAt that nothing ever schedules, and
+        // the snooze would silently vanish.
+        reminderDao.update(
+            current.copy(
+                dueAt = snoozedTo,
+                isAllDay = false,
+                isCompleted = false,
+                completedAt = null
+            )
+        )
+        // Snooze is only a dueAt rewrite, so the re-sync below *is* the entire
+        // "reschedule the alert" mechanism. There's no separate snooze alarm.
+        alarms.requestSync()
     }
 
     suspend fun createReminder(
@@ -84,7 +103,7 @@ class ReminderRepository(private val reminderDao: ReminderDao) {
         isAllDay: Boolean = false,
         repeatRule: String? = null
     ): Long {
-        return reminderDao.insert(
+        val id = reminderDao.insert(
             ReminderEntity(
                 listId = listId,
                 title = title,
@@ -96,6 +115,8 @@ class ReminderRepository(private val reminderDao: ReminderDao) {
                 createdAt = Instant.now().toEpochMilli()
             )
         )
+        alarms.requestSync()
+        return id
     }
 
     suspend fun updateReminderFields(
@@ -130,6 +151,7 @@ class ReminderRepository(private val reminderDao: ReminderDao) {
                 }
             )
         )
+        alarms.requestSync()
     }
 
     /**
@@ -161,6 +183,7 @@ class ReminderRepository(private val reminderDao: ReminderDao) {
                 )
                 if (next != null) {
                     reminderDao.update(current.copy(dueAt = next.toInstant().toEpochMilli()))
+                    alarms.requestSync()
                     return true
                 }
             }
@@ -170,14 +193,18 @@ class ReminderRepository(private val reminderDao: ReminderDao) {
             completed = completed,
             completedAt = if (completed) Instant.now().toEpochMilli() else null
         )
+        alarms.requestSync()
         return false
     }
 
     suspend fun setImportant(id: Long, important: Boolean) {
+        // No requestSync: importance doesn't affect when, or whether, an alarm
+        // should fire.
         reminderDao.setImportant(id, important)
     }
 
     suspend fun softDelete(id: Long) {
         reminderDao.setDeletedAt(id, Instant.now().toEpochMilli())
+        alarms.requestSync()
     }
 }

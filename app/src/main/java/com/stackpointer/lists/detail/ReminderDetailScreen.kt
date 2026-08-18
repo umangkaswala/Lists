@@ -110,7 +110,7 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                 DetailBottomBar(
                     isCompleted = state.isCompleted,
                     onEdit = onEdit,
-                    onSnooze = { notYetAvailable("Snooze") },
+                    onSnooze = viewModel::snooze,
                     onShare = { notYetAvailable("Sharing") },
                     onDelete = { notYetAvailable("Deleting") },
                     onComplete = viewModel::toggleCompleted
