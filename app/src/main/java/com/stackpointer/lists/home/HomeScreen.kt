@@ -108,13 +108,23 @@ fun HomeScreen(
                 }
             }
 
-            item {
-                TileGrid(state = state, onSelectList = viewModel::selectList, onOpenToday = onOpenToday)
-            }
-
-            if (state.listTiles.size > 1) {
+            // Design S03: "No tiles and no filter chips while the database is
+            // empty." A first-run screen showing "Today 0 · 0 overdue · 0 to go"
+            // above an invitation to add something reads as a broken app rather
+            // than a new one.
+            if (!state.isEmpty) {
                 item {
-                    FilterChipRow(state = state, onSelectList = viewModel::selectList)
+                    TileGrid(
+                        state = state,
+                        onSelectList = viewModel::selectList,
+                        onOpenToday = onOpenToday
+                    )
+                }
+
+                if (state.listTiles.size > 1) {
+                    item {
+                        FilterChipRow(state = state, onSelectList = viewModel::selectList)
+                    }
                 }
             }
 

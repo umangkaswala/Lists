@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Share
@@ -45,6 +46,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import java.time.Instant
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -53,6 +58,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stackpointer.lists.di.currentAppContainer
@@ -71,6 +77,20 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
         )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // A minute-by-minute tick, so the overdue line appears while the screen is
+    // open and its count keeps up. Reading the clock once inside the view
+    // model's combine only refreshed it when the database changed.
+    var clockTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000)
+            clockTick++
+        }
+    }
+    val overdueText = remember(state.dueAtMillis, state.isCompleted, clockTick) {
+        overdueLabel(state.dueAtMillis, state.isCompleted, Instant.now())
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -137,11 +157,35 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                 .padding(horizontal = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            Text(
-                text = state.title,
-                style = MaterialTheme.typography.displaySmall,
-                textDecoration = if (state.isCompleted) TextDecoration.LineThrough else null
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    text = state.title,
+                    style = MaterialTheme.typography.displaySmall,
+                    textDecoration = if (state.isCompleted) TextDecoration.LineThrough else null
+                )
+                // Design S11's overdue line. Home and Today both flag an
+                // overdue reminder in error; Detail, the screen you open to
+                // find out about one, said nothing at all.
+                overdueText?.let { overdue ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Rounded.ErrorOutline,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = overdue,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            }
 
             Surface(
                 color = MaterialTheme.colorScheme.surfaceContainerLow,

@@ -51,7 +51,10 @@ data class SearchResultUiModel(
 data class SearchUiState(
     val query: String = "",
     val matchedQuery: String = "",
-    val activeFilter: SearchFilter? = null,
+    // Matches the flow's own starting value. Left at null, the debounce meant
+    // the Open chip rendered unselected for the first quarter-second of every
+    // visit to Search.
+    val activeFilter: SearchFilter? = SearchFilter.OPEN,
     val results: List<SearchResultUiModel> = emptyList(),
     val hasSearched: Boolean = false,
     val recentQueries: List<String> = emptyList()
@@ -67,7 +70,10 @@ class SearchViewModel(
     private val completedFormatter = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
 
     private val rawQuery = MutableStateFlow("")
-    private val activeFilter = MutableStateFlow<SearchFilter?>(null)
+    // Design S12: "Open is selected by default so completed items do not bury
+    // live ones." It started as null, which meant a search for a word you use
+    // often came back mostly things you had already finished.
+    private val activeFilter = MutableStateFlow<SearchFilter?>(SearchFilter.OPEN)
 
     // Typing fires this on every keystroke, but the DB isn't hit until 250ms of
     // silence — otherwise "milk" is four separate queries, each racing the next.
@@ -200,6 +206,10 @@ class SearchViewModel(
 
     fun onFilterSelected(filter: SearchFilter) {
         activeFilter.value = if (activeFilter.value == filter) null else filter
+    }
+
+    fun removeRecentQuery(query: String) {
+        viewModelScope.launch { searchHistoryStore.remove(query) }
     }
 
     fun clearRecentSearches() {

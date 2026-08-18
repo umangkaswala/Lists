@@ -1,5 +1,7 @@
 package com.stackpointer.lists.search
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.rememberScrollState
@@ -60,6 +62,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -132,6 +137,7 @@ fun SearchScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit) {
                 viewModel.onRecentQuerySelected(text)
                 keyboardController?.hide()
             },
+            onRemoveRecent = viewModel::removeRecentQuery,
             onClearRecent = viewModel::clearRecentSearches
         )
     }
@@ -278,6 +284,7 @@ private fun SearchBody(
     onToggleComplete: (Long, Boolean) -> Unit,
     onOpenReminder: (Long) -> Unit,
     onRecentSelected: (String) -> Unit,
+    onRemoveRecent: (String) -> Unit,
     onClearRecent: () -> Unit
 ) {
     LazyColumn(
@@ -313,11 +320,26 @@ private fun SearchBody(
                     ) {
                         state.recentQueries.forEach { recent ->
                             Surface(
-                                onClick = { onRecentSelected(recent) },
                                 // Design uses surfaceContainerHigh with an
                                 // 8dp corner for these, not a pill.
                                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                shape = MaterialTheme.shapes.extraSmall
+                                shape = MaterialTheme.shapes.extraSmall,
+                                // Long-press removes one chip, per design S12.
+                                // Without it the only way to drop a single
+                                // mistyped search was to clear the whole
+                                // history.
+                                // clip() first: Material3's own surface
+                                // modifier clips last, so a clickable added
+                                // here would paint a square ripple over the
+                                // 8dp corner.
+                                modifier = Modifier
+                                    .clip(MaterialTheme.shapes.extraSmall)
+                                    .combinedClickable(
+                                        role = Role.Button,
+                                        onClick = { onRecentSelected(recent) },
+                                        onLongClickLabel = "Remove from recent searches",
+                                        onLongClick = { onRemoveRecent(recent) }
+                                    )
                             ) {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
@@ -363,11 +385,27 @@ private fun SearchBody(
             if (state.results.isEmpty()) {
                 item {
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(top = 48.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 48.dp, start = 32.dp, end = 32.dp),
                         contentAlignment = Alignment.Center
                     ) {
+                        // Names the filter that's doing the excluding. With
+                        // Open selected by default, searching for something
+                        // already ticked off otherwise reported that it simply
+                        // doesn't exist.
                         Text(
-                            text = "No reminders match \"${state.matchedQuery}\"",
+                            text = when (state.activeFilter) {
+                                SearchFilter.OPEN ->
+                                    "No open reminders match \"${state.matchedQuery}\". " +
+                                        "Try the Completed filter."
+                                SearchFilter.COMPLETED ->
+                                    "No completed reminders match \"${state.matchedQuery}\"."
+                                SearchFilter.CHECKLISTS ->
+                                    "No checklists match \"${state.matchedQuery}\"."
+                                null -> "No reminders match \"${state.matchedQuery}\""
+                            },
+                            textAlign = TextAlign.Center,
                             style = MaterialTheme.typography.bodyLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

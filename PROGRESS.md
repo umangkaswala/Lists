@@ -8,8 +8,10 @@
 emulator allows. It is NOT signed off — geofencing cannot be proven on this
 emulator (Play Services refuses to activate registrations without a Google
 account), so the walk-test at the end of the Phase 7 entry is a real
-dependency. Start Phase 8 next (voice capture + photo attachments), or run the
-walk test first if Umang is out and about.**
+dependency. A spec re-check of Phases 1–4 has since fixed five more deviations
+(see its own entry below). Start Phase 8 next (voice capture + photo
+attachments). Umang has said he will run the Phase 5 and Phase 7 device tests
+at the end rather than between phases.**
 
 Phase 5's phone-only checks — real Doze, Samsung battery management, a reboot
 with a secure lock screen, real sound and lock-screen presentation — were run by
@@ -889,6 +891,78 @@ there.
   feature than this phase.
 - **100 geofences per device**, warned at 90. Beyond that the oldest stop being
   registered.
+
+## Spec re-check of Phases 1–4 — ✅ DONE (2026-08-18)
+
+The item flagged after the missing-time-picker bug and never acted on: every
+Phase 1–4 screen re-read against its `.dc.html` spec, looking for more silently
+dropped requirements. **Five were found**, all real, none cosmetic.
+
+### 1. Swipe-to-snooze was 30 minutes; design S04 says 1 hour
+
+Three routes to snoozing (Today's swipe, Detail's button, the notification
+action) and they disagreed: 30 / 30 / 60. Now all 60, with the number in one
+constant per screen and a comment tying them together. The swipe *background*
+still read "Snooze 30m" after the first fix — caught by the code review, in the
+one place the user reads before committing to the gesture.
+
+### 2. Search returned completed reminders by default
+
+Design S12: *"Open is selected by default so completed items do not bury live
+ones."* The filter started as null, so searching a word you use often came back
+mostly things already ticked off. Now defaults to Open — and the empty state
+had to change with it, because "No reminders match X" was then a lie for
+anything completed. It now names the filter doing the excluding and points at
+the Completed chip.
+
+### 3. Recent searches couldn't be removed individually
+
+Design S12: *"long-press to remove"*. Only "Clear" existed, so one mistyped
+search meant losing the lot. Long-press now removes a single chip, with a
+TalkBack label for the gesture.
+
+### 4. Home showed tiles and filter chips on an empty database
+
+Design S03: *"No tiles and no filter chips while the database is empty."* A
+first-run screen showing "Today 0 · 0 overdue · 0 to go" above an invitation to
+add something reads as broken rather than new. **Verified by reading, not by
+observation** — the seed data means an empty database is unreachable in testing
+without deleting every reminder by hand. It is a one-line guard on the same
+flag the empty state two lines below already uses.
+
+### 5. Detail had no overdue line
+
+Design S11: *"overdue line 14/20 in error with an 18 dp error glyph."* Home and
+Today both flag overdue in red; Detail — the screen you open to find out about
+one — said nothing. Now shows "Overdue by 1 day" with the error glyph.
+
+### `/code-review high` on the fix pass found 6 more, all fixed
+
+The swipe label above, the misleading empty state above, plus:
+
+- **Detail's overdue rule disagreed with Home's.** Detail carved out all-day
+  reminders; Home and Today judge purely on `dueAt`. An all-day reminder could
+  sit in Home's red Overdue section while its own page said nothing. Detail now
+  matches the rest of the app.
+- **The overdue line was frozen.** It was computed inside the view model's
+  `combine`, which only re-runs when Room emits — so a reminder falling due
+  while Detail was open never grew the line, and "Overdue by 1 min" stayed
+  there indefinitely. Now a free function recomputed against a 30-second tick.
+- **The recent-search chip painted a square ripple** over its 8 dp corner
+  (`combinedClickable` added after Material3's own clip), and had no button
+  role or long-press label for TalkBack.
+- **The Open chip flashed unselected** for ~250 ms on entering Search, because
+  the UI state's default and the flow's starting value disagreed and a debounce
+  sat between them.
+
+### Also ruled out, not a bug
+
+Two reminders typed over adb came back with words missing ("Post the letter" →
+"Post"), which looked like the parser eating input. It isn't: a unit test
+(`PlainTitleTest`) confirms ordinary words survive parsing untouched. It was
+`adb shell input text` dropping text after spaces on this emulator image. The
+test is kept as a regression guard, because "the parser ate my title" is a
+failure that would be easy to miss and hard to explain.
 
 ## Phases 8–12 — ⬜ NOT STARTED
 

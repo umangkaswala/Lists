@@ -84,7 +84,7 @@ class TodayViewModel(
     /** Returns true if a repeating reminder rolled forward instead of completing. */
     suspend fun completeReminder(id: Long): Boolean = reminderRepository.setCompleted(id, true)
 
-    suspend fun snoozeReminder(id: Long) = reminderRepository.snooze(id, 30)
+    suspend fun snoozeReminder(id: Long) = reminderRepository.snooze(id, SNOOZE_MINUTES)
 
     suspend fun undo(snapshot: ReminderUndoSnapshot) = reminderRepository.restore(snapshot)
 
@@ -198,6 +198,15 @@ class TodayViewModel(
             isCompleted = isCompleted,
             completedTimeText = completedTimeText
         )
+    }
+
+    companion object {
+        /**
+         * Design S04 words the left swipe as "snooze 1 h" and the notification
+         * offers the same hour, so all three routes agree. It used to be 30
+         * minutes here and nowhere else.
+         */
+        const val SNOOZE_MINUTES = 60L
     }
 
     class Factory(

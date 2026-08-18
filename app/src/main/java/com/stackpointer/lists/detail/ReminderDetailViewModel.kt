@@ -38,6 +38,13 @@ data class ReminderDetailUiState(
     val title: String = "",
     val note: String? = null,
     val dueText: String? = null,
+    /**
+     * Raw inputs for design S11's overdue line rather than a formatted string:
+     * the label has to be recomputed against a live clock (see
+     * [overdueLabel]), and a value baked in here would freeze at whatever the
+     * last database emission happened to say.
+     */
+    val dueAtMillis: Long? = null,
     val repeatText: String = "None",
     val repeats: Boolean = false,
     /** "Arrive at Home · within 200 m", or null when there's no place trigger. */
@@ -51,6 +58,34 @@ data class ReminderDetailUiState(
     val historySummary: String = "",
     val totalCompletions: Int = 0
 )
+
+/**
+ * How late a reminder is, or null when it isn't.
+ *
+ * A free function taking [now] so the screen can recompute it on a ticking
+ * clock: held inside the view model's `combine`, it only refreshed when Room
+ * emitted, so a reminder that fell due while Detail was open never grew the
+ * line, and "Overdue by 1 min" sat frozen for an hour.
+ *
+ * All-day reminders are judged the same way as everything else — on `dueAt`
+ * alone. Home and Today both do, and a reminder sitting in Home's red Overdue
+ * section while its own Detail page says nothing is worse than either rule
+ * applied consistently.
+ */
+fun overdueLabel(dueAtMillis: Long?, isCompleted: Boolean, now: Instant): String? {
+    if (isCompleted) return null
+    val dueAt = dueAtMillis ?: return null
+    if (dueAt >= now.toEpochMilli()) return null
+    val late = java.time.Duration.ofMillis(now.toEpochMilli() - dueAt)
+    fun plural(count: Long, unit: String) =
+        if (count == 1L) "Overdue by 1 $unit" else "Overdue by $count ${unit}s"
+    return when {
+        late.toMinutes() < 1 -> "Overdue"
+        late.toMinutes() < 60 -> "Overdue by ${late.toMinutes()} min"
+        late.toHours() < 24 -> plural(late.toHours(), "hour")
+        else -> plural(late.toDays(), "day")
+    }
+}
 
 class ReminderDetailViewModel(
     private val reminderId: Long,
@@ -87,6 +122,7 @@ class ReminderDetailViewModel(
                 dueText = reminder.dueAt?.let {
                     Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).format(formatter)
                 },
+                dueAtMillis = reminder.dueAt,
                 repeatText = rule?.let { rruleSummary(it, anchorDate) } ?: "None",
                 repeats = rule != null,
                 // Read inside the combine rather than as a sixth flow: combine
@@ -143,7 +179,7 @@ class ReminderDetailViewModel(
                 return@launch
             }
             reminderRepository.snooze(reminderId, SNOOZE_MINUTES)
-            _messages.tryEmit("Snoozed for $SNOOZE_MINUTES minutes")
+            _messages.tryEmit("Snoozed for 1 hour")
         }
     }
 
@@ -193,7 +229,8 @@ class ReminderDetailViewModel(
     }
 
     private companion object {
-        const val SNOOZE_MINUTES = 30L
+        /** Kept equal to Today's swipe — see TodayViewModel.SNOOZE_MINUTES. */
+        const val SNOOZE_MINUTES = 60L
 
         /** Enough rows to show a streak without needing paging of its own. */
         const val HISTORY_LIMIT = 8

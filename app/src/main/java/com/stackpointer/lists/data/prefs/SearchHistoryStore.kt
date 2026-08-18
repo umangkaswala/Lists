@@ -40,6 +40,16 @@ class SearchHistoryStore(private val context: Context) {
         }
     }
 
+    /** Design S12: recent-search chips are removed by long-pressing them. */
+    suspend fun remove(query: String) {
+        context.searchHistoryDataStore.edit { prefs ->
+            val remaining = prefs[key].orEmpty()
+                .split(SEPARATOR)
+                .filter { it.isNotBlank() && !it.equals(query, ignoreCase = true) }
+            if (remaining.isEmpty()) prefs.remove(key) else prefs[key] = remaining.joinToString(SEPARATOR)
+        }
+    }
+
     suspend fun clear() {
         context.searchHistoryDataStore.edit { it.remove(key) }
     }

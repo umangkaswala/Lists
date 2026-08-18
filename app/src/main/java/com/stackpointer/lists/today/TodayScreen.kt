@@ -93,7 +93,7 @@ fun TodayScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit, onAddReminde
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
                     viewModel.snoozeReminder(id)
-                    "Snoozed 30 minutes"
+                    "Snoozed for 1 hour"
                 }
                 SwipeToDismissBoxValue.Settled -> return@launch
             }
@@ -300,7 +300,7 @@ private fun SwipeActionBackground(direction: SwipeToDismissBoxValue, shape: Shap
             }
         } else if (isSnooze) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = "Snooze 30m", color = contentColor, style = MaterialTheme.typography.labelLarge)
+                Text(text = "Snooze 1h", color = contentColor, style = MaterialTheme.typography.labelLarge)
                 Spacer(Modifier.width(8.dp))
                 Icon(Icons.Rounded.Snooze, contentDescription = null, tint = contentColor)
             }
