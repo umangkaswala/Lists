@@ -6,11 +6,13 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.stackpointer.lists.data.dao.AttachmentDao
 import com.stackpointer.lists.data.dao.ChecklistItemDao
 import com.stackpointer.lists.data.dao.CompletionDao
 import com.stackpointer.lists.data.dao.PlaceDao
 import com.stackpointer.lists.data.dao.ReminderDao
 import com.stackpointer.lists.data.dao.ReminderListDao
+import com.stackpointer.lists.data.entity.AttachmentEntity
 import com.stackpointer.lists.data.entity.ChecklistItemEntity
 import com.stackpointer.lists.data.entity.CompletionEntity
 import com.stackpointer.lists.data.entity.PlaceEntity
@@ -27,11 +29,12 @@ import java.util.concurrent.atomic.AtomicBoolean
     entities = [
         ReminderEntity::class,
         ReminderListEntity::class,
+        AttachmentEntity::class,
         ChecklistItemEntity::class,
         CompletionEntity::class,
         PlaceEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class ListsDatabase : RoomDatabase() {
@@ -40,6 +43,7 @@ abstract class ListsDatabase : RoomDatabase() {
     abstract fun checklistItemDao(): ChecklistItemDao
     abstract fun completionDao(): CompletionDao
     abstract fun placeDao(): PlaceDao
+    abstract fun attachmentDao(): AttachmentDao
 
     companion object {
         @Volatile
@@ -60,7 +64,7 @@ abstract class ListsDatabase : RoomDatabase() {
                 // Real migrations where one exists. The destructive fallback
                 // below stays as the net for any *earlier* schema bump that
                 // never got one -- it only fires when no path is registered.
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .addCallback(SeedCallback(context))
                 .build()
@@ -121,6 +125,29 @@ abstract class ListsDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `reminders` ADD COLUMN `placeWindowEndMinute` INTEGER")
                 db.execSQL("ALTER TABLE `reminders` ADD COLUMN `placeWindowDays` TEXT")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_reminders_placeId` ON `reminders` (`placeId`)")
+            }
+        }
+
+        /**
+         * Adds the photo-attachment table. Only file names live here; the
+         * images themselves are copied into the app's own files directory (see
+         * AttachmentRepository), so there is nothing to backfill.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `attachments` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`reminderId` INTEGER NOT NULL, " +
+                        "`fileName` TEXT NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`reminderId`) REFERENCES `reminders`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_attachments_reminderId` " +
+                        "ON `attachments` (`reminderId`)"
+                )
             }
         }
     }

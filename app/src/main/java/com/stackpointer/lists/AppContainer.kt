@@ -4,6 +4,7 @@ import android.content.Context
 import com.stackpointer.lists.data.db.ListsDatabase
 import com.stackpointer.lists.data.prefs.OnboardingStore
 import com.stackpointer.lists.data.prefs.SearchHistoryStore
+import com.stackpointer.lists.data.repository.AttachmentRepository
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
 import com.stackpointer.lists.data.repository.PlaceRepository
@@ -32,6 +33,7 @@ class AppContainer(context: Context) {
     val completionDao = database.completionDao()
     val placeDao = database.placeDao()
     val listDao = database.reminderListDao()
+    val attachmentDao = database.attachmentDao()
 
     val alarmScheduler = AlarmScheduler(appContext, reminderDao, applicationScope)
 
@@ -50,6 +52,7 @@ class AppContainer(context: Context) {
     val listRepository = ListRepository(listDao, osStateSync)
     val placeRepository = PlaceRepository(placeDao, geofenceRegistrar)
     val checklistRepository = ChecklistRepository(database.checklistItemDao())
+    val attachmentRepository = AttachmentRepository(appContext, attachmentDao)
     val searchHistoryStore = SearchHistoryStore(appContext)
     val onboardingStore = OnboardingStore(appContext)
 }

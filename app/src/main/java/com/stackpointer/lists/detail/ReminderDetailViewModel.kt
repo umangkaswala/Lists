@@ -3,7 +3,9 @@ package com.stackpointer.lists.detail
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.stackpointer.lists.data.entity.AttachmentEntity
 import com.stackpointer.lists.data.entity.ChecklistItemEntity
+import com.stackpointer.lists.data.repository.AttachmentRepository
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
 import com.stackpointer.lists.completed.ON_TIME
@@ -54,6 +56,7 @@ data class ReminderDetailUiState(
     val isImportant: Boolean = false,
     val isCompleted: Boolean = false,
     val checklist: List<ChecklistItemEntity> = emptyList(),
+    val photos: List<AttachmentEntity> = emptyList(),
     val history: List<CompletionHistoryItem> = emptyList(),
     val historySummary: String = "",
     val totalCompletions: Int = 0
@@ -92,7 +95,8 @@ class ReminderDetailViewModel(
     private val reminderRepository: ReminderRepository,
     listRepository: ListRepository,
     private val checklistRepository: ChecklistRepository,
-    private val placeRepository: PlaceRepository
+    private val placeRepository: PlaceRepository,
+    private val attachmentRepository: AttachmentRepository
 ) : ViewModel() {
 
     private val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
@@ -104,8 +108,14 @@ class ReminderDetailViewModel(
         listRepository.observeLists(),
         checklistRepository.observeForReminder(reminderId),
         reminderRepository.observeCompletionsFor(reminderId, HISTORY_LIMIT),
-        reminderRepository.observeCompletionCountFor(reminderId)
-    ) { reminder, lists, checklist, completions, completionCount ->
+        // Photos ride along with the completion count rather than taking a
+        // sixth slot: combine tops out at five typed sources.
+        combine(
+            reminderRepository.observeCompletionCountFor(reminderId),
+            attachmentRepository.observeForReminder(reminderId)
+        ) { count, photos -> count to photos }
+    ) { reminder, lists, checklist, completions, countAndPhotos ->
+        val (completionCount, photos) = countAndPhotos
         if (reminder == null) {
             ReminderDetailUiState(isLoading = false, found = false)
         } else {
@@ -134,6 +144,7 @@ class ReminderDetailViewModel(
                 isImportant = reminder.isImportant,
                 isCompleted = reminder.isCompleted,
                 checklist = checklist,
+                photos = photos,
                 history = completions.map { completion ->
                     val label = punctualityLabel(
                         dueAt = completion.dueAt,
@@ -241,12 +252,18 @@ class ReminderDetailViewModel(
         private val reminderRepository: ReminderRepository,
         private val listRepository: ListRepository,
         private val checklistRepository: ChecklistRepository,
-        private val placeRepository: PlaceRepository
+        private val placeRepository: PlaceRepository,
+        private val attachmentRepository: AttachmentRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return ReminderDetailViewModel(
-                reminderId, reminderRepository, listRepository, checklistRepository, placeRepository
+                reminderId,
+                reminderRepository,
+                listRepository,
+                checklistRepository,
+                placeRepository,
+                attachmentRepository
             ) as T
         }
     }

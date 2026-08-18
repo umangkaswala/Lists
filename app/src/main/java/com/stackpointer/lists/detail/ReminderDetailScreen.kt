@@ -57,6 +57,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.foundation.horizontalScroll
+import com.stackpointer.lists.capture.PhotoThumbnail
+import com.stackpointer.lists.ui.theme.ListsCorner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -73,7 +76,8 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
             container.reminderRepository,
             container.listRepository,
             container.checklistRepository,
-            container.placeRepository
+            container.placeRepository,
+            container.attachmentRepository
         )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -82,7 +86,13 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
     // open and its count keeps up. Reading the clock once inside the view
     // model's combine only refreshed it when the database changed.
     var clockTick by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
+    // Only runs while there is actually a due date to count against. Left
+    // unconditional it recomposed this whole screen every 30 seconds forever,
+    // including for reminders with no date at all — and every photo thumbnail
+    // with it.
+    val needsClock = state.dueAtMillis != null && !state.isCompleted
+    LaunchedEffect(needsClock) {
+        if (!needsClock) return@LaunchedEffect
         while (true) {
             delay(30_000)
             clockTick++
@@ -300,6 +310,42 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(text = note, style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+            }
+
+            if (state.photos.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceContainerLow,
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = if (state.photos.size == 1) "PHOTO" else "PHOTOS",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            state.photos.forEach { photo ->
+                                PhotoThumbnail(
+                                    file = container.attachmentRepository.fileFor(photo),
+                                    // Bigger than the capture sheet's strip:
+                                    // Detail is where you actually look at the
+                                    // picture, not just confirm it's attached.
+                                    targetPx = 640,
+                                    modifier = Modifier
+                                        .size(140.dp)
+                                        .clip(RoundedCornerShape(ListsCorner.medium))
+                                )
+                            }
+                        }
                     }
                 }
             }

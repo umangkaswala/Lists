@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The camera app needs a URI it can write into. Only the attachments
+    directory is shared, and only through a FileProvider grant that lasts for
+    the one capture — the rest of the app's storage stays private.
+-->
+<paths>
+    <files-path
+        name="attachments"
+        path="attachments/" />
+</paths>

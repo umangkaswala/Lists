@@ -88,6 +88,16 @@ fun SearchScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
 
+    // Dictation fills the query box rather than searching immediately, so a
+    // misheard word can be corrected instead of returning nothing.
+    val startVoiceSearch = com.stackpointer.lists.voice.rememberVoiceCaptureLauncher(
+        prompt = "Say what you're looking for",
+        onUnavailable = {
+            scope.launch { snackbarHostState.showSnackbar("This phone has no dictation app") }
+        },
+        onResult = { spoken -> viewModel.onQueryChange(spoken) }
+    )
+
     fun notYetAvailable(feature: String) {
         scope.launch { snackbarHostState.showSnackbar("$feature is coming in a later phase") }
     }
@@ -117,7 +127,7 @@ fun SearchScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit) {
                         viewModel.submitSearch()
                         keyboardController?.hide()
                     },
-                    onVoiceSearch = { notYetAvailable("Voice search") },
+                    onVoiceSearch = startVoiceSearch,
                     focusRequester = focusRequester
                 )
                 FilterChipsRow(

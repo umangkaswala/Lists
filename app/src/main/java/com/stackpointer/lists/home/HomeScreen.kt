@@ -49,6 +49,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.launch
+import com.stackpointer.lists.voice.rememberVoiceCaptureLauncher
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -85,6 +90,17 @@ fun HomeScreen(
         )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val startVoiceCapture = rememberVoiceCaptureLauncher(
+        prompt = "What do you need to remember?",
+        onUnavailable = {
+            scope.launch {
+                snackbarHostState.showSnackbar("This phone has no dictation app")
+            }
+        },
+        onResult = { spoken -> onOpenCapture(CaptureTarget.New(spoken)) }
+    )
 
     Box(modifier = modifier.fillMaxSize().systemBarsPadding()) {
         LazyColumn(
@@ -160,7 +176,16 @@ fun HomeScreen(
 
         CapturePill(
             onClick = { onOpenCapture(CaptureTarget.New()) },
+            // Dictation opens the same sheet with the words already in it, so
+            // the spoken text runs through the parser exactly as typed text
+            // does — "call mum tomorrow at six" arrives with its chips filled.
+            onVoiceCapture = startVoiceCapture,
             modifier = Modifier.align(Alignment.BottomCenter)
+        )
+
+        SnackbarHost(
+            snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 80.dp)
         )
     }
 }
@@ -490,7 +515,7 @@ private fun ReminderCard(
 }
 
 @Composable
-fun CapturePill(onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun CapturePill(onClick: () -> Unit, onVoiceCapture: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHighest,
         shape = MaterialTheme.shapes.extraLarge,
@@ -506,7 +531,7 @@ fun CapturePill(onClick: () -> Unit, modifier: Modifier = Modifier) {
                 .fillMaxSize()
                 .padding(horizontal = 8.dp)
         ) {
-            IconButton(onClick = { /* wired in Phase 8: voice capture */ }) {
+            IconButton(onClick = onVoiceCapture) {
                 Icon(Icons.Rounded.Mic, contentDescription = "Voice capture")
             }
             Text(

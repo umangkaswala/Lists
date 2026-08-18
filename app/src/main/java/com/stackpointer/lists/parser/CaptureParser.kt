@@ -255,6 +255,14 @@ object CaptureParser {
     /** Default time-of-day applied when a date was found but no time was. */
     private val ALL_DAY_DEFAULT_TIME: LocalTime = LocalTime.of(9, 0)
 
+    /** Hours as people say them out loud, for dictated reminders. */
+    private val SPOKEN_HOURS: Map<String, Int> = mapOf(
+        "one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6,
+        "seven" to 7, "eight" to 8, "nine" to 9, "ten" to 10, "eleven" to 11, "twelve" to 12
+    )
+
+    private val SPOKEN_HOUR_ALT: String = SPOKEN_HOURS.keys.joinToString("|")
+
     /** Earliest date >= [from] that satisfies [rrule]'s day-of-week / day-of-month constraint. */
     private fun deriveRepeatDate(rrule: RRule, from: LocalDate): LocalDate {
         return when (rrule.freq) {
@@ -548,6 +556,29 @@ object CaptureParser {
                 val hour = m.groupValues[1].toInt()
                 out += Candidate(m.range, Kind.TIME, time = LocalTime.of(hour, 0))
             }
+
+        // Spelled-out hours: "at six", "at six pm", "at six o'clock".
+        // Voice capture makes this worth having — people dictate "call mum
+        // tomorrow at six", and without it the date parsed while "at six"
+        // stayed stranded in the reminder's title.
+        Regex(
+            """\bat\s+($SPOKEN_HOUR_ALT)(?:\s*(am|pm)|\s+o'?clock)?\b""",
+            RegexOption.IGNORE_CASE
+        ).findAll(text).forEach { m ->
+            val spoken = SPOKEN_HOURS[m.groupValues[1].lowercase()] ?: return@forEach
+            val hour = when (m.groupValues[2].lowercase()) {
+                "pm" -> spoken % 12 + 12
+                "am" -> spoken % 12
+                // A bare hour is read literally, exactly as "at 6" already is.
+                // Guessing PM for the afternoon-ish hours was tempting — people
+                // do mean 6 pm — but it made "at 6" and "at six" land twelve
+                // hours apart, and made "at seven" evening while "at eight" was
+                // morning. One consistent rule beats a clever inconsistent one;
+                // "at six pm" says it plainly and is handled above.
+                else -> spoken
+            }
+            out += Candidate(m.range, Kind.TIME, time = LocalTime.of(hour % 24, 0))
+        }
 
         Regex("""\b(?:noon|midday)\b""", RegexOption.IGNORE_CASE).findAll(text).forEach { m ->
             out += Candidate(m.range, Kind.TIME, time = LocalTime.of(12, 0))

@@ -8,10 +8,13 @@
 emulator allows. It is NOT signed off — geofencing cannot be proven on this
 emulator (Play Services refuses to activate registrations without a Google
 account), so the walk-test at the end of the Phase 7 entry is a real
-dependency. A spec re-check of Phases 1–4 has since fixed five more deviations
-(see its own entry below). Start Phase 8 next (voice capture + photo
-attachments). Umang has said he will run the Phase 5 and Phase 7 device tests
-at the end rather than between phases.**
+dependency. A spec re-check of Phases 1–4 fixed five more deviations, and
+Phase 8 (voice capture + photo attachments) is built and emulator-verified.
+Start Phase 9 next (Settings & onboarding polish) — and note Phase 9 owes the
+privacy copy for dictation, which Phase 8 deliberately left to it.
+
+Umang has said he will run the Phase 5 and Phase 7 device tests at the end
+rather than between phases, so those two remain unsigned-off.**
 
 Phase 5's phone-only checks — real Doze, Samsung battery management, a reboot
 with a secure lock screen, real sound and lock-screen presentation — were run by
@@ -964,7 +967,130 @@ Two reminders typed over adb came back with words missing ("Post the letter" →
 test is kept as a regression guard, because "the parser ate my title" is a
 failure that would be easy to miss and hard to explain.
 
-## Phases 8–12 — ⬜ NOT STARTED
+## Phase 8 — Voice capture & photo attachments — ✅ DONE (2026-08-18)
+
+The last two stubs in the Capture sheet's action row, plus the mic on the
+capture pill and in Search.
+
+### Voice capture
+
+Uses `RecognizerIntent`, handing the job to whichever speech app the phone
+already has, rather than the `SpeechRecognizer` API. Two reasons, both worth
+recording:
+
+- **No `RECORD_AUDIO` permission.** The recogniser app holds it and shows its
+  own listening UI. Lists never touches the microphone itself.
+- **That is a much easier thing to say honestly** in the privacy copy Phase 9
+  has to write.
+
+Dictated text goes into the **same Capture sheet, through the same parser**, so
+"call mum tomorrow at six" arrives with its chips already filled in — spoken
+input gets no special path and no second implementation. Search's mic fills the
+query box rather than searching immediately, so a misheard word can be fixed
+before it returns nothing.
+
+`EXTRA_PREFER_OFFLINE` asks the recogniser to stay on the device. It is a
+preference, not a guarantee — the text may be produced in Google's cloud
+depending on what the phone supports. **That needs saying in Settings copy in
+Phase 9**; it is already flagged in PLAN.md's open TODOs.
+
+A phone with no dictation app at all gets a snackbar, not a dead button.
+
+### The parser gained spoken hours
+
+Writing a test for dictation-shaped input immediately failed: *"call mum
+tomorrow at six"* parsed the date but left **"at six" stranded in the title**,
+because the parser only understood digits. People do not dictate "at 6 pm".
+
+Now "at six", "at six pm" and "at six o'clock" all parse. A **bare** spoken hour
+is read literally — "at six" is 06:00, exactly as "at 6" already was. The first
+attempt guessed PM for one-to-seven because that is usually what people mean,
+and the code review rightly killed it: it made "at 6" and "at six" land twelve
+hours apart, and made "at seven" evening while "at eight" was morning. One
+consistent rule beats a clever inconsistent one.
+
+### Photo attachments
+
+**Storage.** Images are *copied* into the app's own files directory, not
+referenced where they sit. A `content://` URI from the picker is a temporary
+grant that stops resolving once the receiving process dies, and a gallery image
+can be moved or deleted by its owning app at any time — either way the
+attachment silently becomes a broken thumbnail. Only the file *name* is stored
+in the database.
+
+**Permissions: none added.** The gallery uses the system photo picker, which
+needs no storage permission and shows only what the user picks. The camera uses
+`TakePicture` with a FileProvider URI, and Lists deliberately does **not**
+declare `CAMERA` — declaring it would *require* granting it before the camera
+app could be used at all.
+
+**Schema 4 → 5** with a hand-written migration, same reasoning as Phases 6 and
+7. Nothing to backfill.
+
+**File cleanup.** The files are not in the database, so nothing removes them
+when a reminder is deleted for good — the row cascades away and the image would
+stay on the phone forever. An orphan sweep runs at app start and deletes any
+file no row points at. Files written in the last hour are skipped: a photo
+attached to a *new* reminder exists on disk before the reminder is saved, and
+the sweep racing that window would delete the picture out from under the sheet.
+
+**Thumbnails** are decoded off the main thread with `inSampleSize` sized to
+what is actually drawn. A modern phone camera image decoded at full size to
+draw at 72dp is how a row of photos becomes an OutOfMemoryError.
+
+### `/code-review high` found 5 issues, all fixed
+
+1. **Removing a photo while editing deleted it immediately** — so backing out of
+   an edit without saving still destroyed the picture, unlike every other field
+   on the sheet. Now marked for deletion and committed in `save()`.
+2. **A successful photo could be thrown away.** The pending capture path was in
+   a plain `remember`, but the camera app can push this activity out of memory;
+   the result then arrived with nothing to attach it to and reported "couldn't
+   add that photo". Now `rememberSaveable`.
+3. **The spoken-hour rule contradicted the digit rule** — see above.
+4. **A filesystem syscall per photo per recomposition.** `fileFor()` went
+   through a getter that called `mkdirs()` every time, and Detail's new 30-second
+   overdue tick recomposed the whole screen forever, including for reminders
+   with no due date. The directory is created once now, and the tick only runs
+   while there is a due date to count against.
+5. **A non-atomic state write** from the IO dispatcher could drop a keystroke or
+   the photo if the two landed together. Now `MutableStateFlow.update {}`.
+
+### Verified on the emulator
+
+Migration 4 → 5 ran over the Phase 7 database with no data loss; a photo was
+picked from the gallery, copied into app storage, shown as a thumbnail with its
+remove button, saved, and found again on Detail under a "PHOTO" card after a
+full reinstall; the Photo action icon lights up when a photo is attached; the
+photo-source menu offers camera and gallery; and the capture pill's mic launches
+the recogniser with our own prompt ("What do you need to remember?").
+
+**Not verifiable here:** actually speaking. The emulator has no microphone, so
+the recogniser launches but nothing can be dictated. The half that *can* be
+covered — what the parser does with dictation-shaped text — is now two unit
+tests. Speaking a reminder is on Umang's device list.
+
+### One thing seen and deliberately not "fixed"
+
+The emulator threw an **ANR** during this phase. It was investigated rather than
+ignored: the reason was `No response to onStartJob`, the main thread was
+`Runnable` inside Compose's *first composition* with no frame of ours on the
+stack and nothing blocking, and the recorded system load was **11.29** because a
+Gradle build was running on the same machine. There were also ANR files from
+earlier in the day, before any Phase 8 code existed. This is a slow x86 emulator
+under load, not a defect — but it is written down here so a future session
+doesn't rediscover it and go looking for a bug. Cold start on the loaded
+emulator measured 9.2 s; worth re-measuring on Umang's phone during the device
+pass.
+
+### Known limitations
+
+- **Photos can't be opened full-screen** from Detail yet — they show as
+  thumbnails. A viewer is Phase 12 polish, not a stub with a dead tap.
+- **No photo search.** Search's "Photos" filter chip is still a stub.
+- **Dictation language** follows the phone; there is no in-app language picker.
+
+## Phases 9–12 — ⬜ NOT STARTED
 
 See PLAN.md for full descriptions of each.
 
@@ -977,5 +1103,8 @@ See PLAN.md for full descriptions of each.
 - Design S05's full-bleed map of all geofences: deferred in Phase 7, needs the
   Maps SDK and a billable API key, which PLAN.md deliberately avoided. Worth an
   explicit decision before Phase 12.
-- Voice recognition privacy disclosure wording: needed by Phase 8/9, not
-  written yet.
+- Voice recognition privacy disclosure wording: **now owed by Phase 9**. Phase 8
+  shipped dictation via `RecognizerIntent`, which needs no microphone permission
+  of our own but may still produce its text in Google's cloud rather than on the
+  device. The Settings copy has to say so.
+- A full-screen photo viewer: attachments show as thumbnails only. Phase 12.

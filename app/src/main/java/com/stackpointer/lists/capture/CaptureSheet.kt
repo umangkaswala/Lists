@@ -109,6 +109,7 @@ fun CaptureSheetContent(
             listRepository = container.listRepository,
             checklistRepository = container.checklistRepository,
             placeRepository = container.placeRepository,
+            attachmentRepository = container.attachmentRepository,
             scope = scope,
             appScope = container.applicationScope
         )
@@ -123,6 +124,20 @@ fun CaptureSheetContent(
     // the screen — a SnackbarHost hosted outside it (e.g. in the NavHost) is
     // invisible while the sheet is open. This sheet needs its own.
     val snackbarHostState = remember { SnackbarHostState() }
+    val photoPickers = rememberPhotoPickers(
+        repository = container.attachmentRepository,
+        onImported = { uri ->
+            viewModel.addPhotoFromUri(uri) {
+                scope.launch { snackbarHostState.showSnackbar("Couldn't add that photo") }
+            }
+        },
+        onCaptured = viewModel::addCapturedPhoto,
+        onFailed = {
+            scope.launch { snackbarHostState.showSnackbar("Couldn't add that photo") }
+        }
+    )
+    var photoMenuOpen by remember { mutableStateOf(false) }
+
     fun showStub(feature: String) {
         scope.launch { snackbarHostState.showSnackbar("$feature is coming in a later phase") }
     }
@@ -156,6 +171,11 @@ fun CaptureSheetContent(
                     onClearDue = viewModel::clearDue,
                     onOpenWhere = viewModel::openWhere,
                     onClearPlace = viewModel::clearPlace,
+                    photoMenuOpen = photoMenuOpen,
+                    onPhotoMenuChange = { photoMenuOpen = it },
+                    photoPickers = photoPickers,
+                    attachmentRepository = container.attachmentRepository,
+                    onRemovePhoto = viewModel::removePhoto,
                     onOpenRepeat = viewModel::openRepeat,
                     onClearRepeat = viewModel::clearRepeat,
                     onToggleChecklist = viewModel::toggleChecklist,
@@ -215,6 +235,11 @@ private fun TypingContent(
     onClearDue: () -> Unit,
     onOpenWhere: () -> Unit,
     onClearPlace: () -> Unit,
+    photoMenuOpen: Boolean,
+    onPhotoMenuChange: (Boolean) -> Unit,
+    photoPickers: PhotoPickers,
+    attachmentRepository: com.stackpointer.lists.data.repository.AttachmentRepository,
+    onRemovePhoto: (PhotoDraft) -> Unit,
     onOpenRepeat: () -> Unit,
     onClearRepeat: () -> Unit,
     onToggleChecklist: () -> Unit,
@@ -282,6 +307,15 @@ private fun TypingContent(
             }
         }
 
+        if (state.photos.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            PhotoStrip(
+                photos = state.photos,
+                repository = attachmentRepository,
+                onRemove = onRemovePhoto
+            )
+        }
+
         if (state.showChecklist) {
             Spacer(Modifier.height(8.dp))
             ChecklistSection(
@@ -318,7 +352,19 @@ private fun TypingContent(
                 active = state.showChecklist,
                 onClick = onToggleChecklist
             )
-            CaptureActionIcon(Icons.Rounded.PhotoCamera, "Photo", onClick = { onStub("Photo attachments") })
+            Box {
+                CaptureActionIcon(
+                    Icons.Rounded.PhotoCamera,
+                    "Photo",
+                    active = state.photos.isNotEmpty(),
+                    onClick = { onPhotoMenuChange(true) }
+                )
+                PhotoSourceMenu(
+                    expanded = photoMenuOpen,
+                    onDismiss = { onPhotoMenuChange(false) },
+                    pickers = photoPickers
+                )
+            }
             CaptureActionIcon(
                 Icons.Rounded.List,
                 "List",

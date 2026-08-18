@@ -3,6 +3,7 @@ package com.stackpointer.lists.capture
 import com.stackpointer.lists.data.entity.ReminderListEntity
 import com.stackpointer.lists.data.repository.ChecklistItemDraft
 import com.stackpointer.lists.data.entity.PlaceEntity
+import com.stackpointer.lists.data.repository.AttachmentRepository
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
 import com.stackpointer.lists.data.repository.PlaceRepository
@@ -16,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -27,6 +29,12 @@ import java.time.temporal.ChronoUnit
 
 enum class CaptureMode { TYPING, WHEN, WHERE, REPEAT, LIST }
 
+/**
+ * One attached photo on the sheet. [attachmentId] is null while the photo is
+ * only a draft — a file on disk that no database row points at yet.
+ */
+data class PhotoDraft(val fileName: String, val attachmentId: Long? = null)
+
 data class CaptureUiState(
     val mode: CaptureMode = CaptureMode.TYPING,
     val title: String = "",
@@ -34,6 +42,12 @@ data class CaptureUiState(
     val listId: Long? = null,
     val lists: List<ReminderListEntity> = emptyList(),
     val checklist: List<ChecklistItemDraft> = emptyList(),
+    /**
+     * Photos on the sheet right now, as stored file names. Held as a draft
+     * because a brand-new reminder has no id to attach them to until it is
+     * saved — the same shape as [checklist].
+     */
+    val photos: List<PhotoDraft> = emptyList(),
     val showChecklist: Boolean = false,
     val dueAt: Long? = null,
     val isAllDay: Boolean = false,
@@ -114,6 +128,7 @@ class CaptureViewModel(
     private val listRepository: ListRepository,
     private val checklistRepository: ChecklistRepository,
     private val placeRepository: PlaceRepository,
+    private val attachmentRepository: AttachmentRepository,
     private val scope: CoroutineScope,
     /**
      * For writes that must survive the sheet closing. [scope] is the sheet's
@@ -163,6 +178,9 @@ class CaptureViewModel(
                         val existingChecklist = checklistRepository
                             .observeForReminder(target.reminderId).first()
                             .map { ChecklistItemDraft(it.text, it.isCompleted) }
+                        val existingPhotos = attachmentRepository
+                            .getForReminder(target.reminderId)
+                            .map { PhotoDraft(it.fileName, it.id) }
                         _uiState.value = _uiState.value.copy(
                             title = reminder.title,
                             cleanedTitle = reminder.title,
@@ -174,6 +192,7 @@ class CaptureViewModel(
                             repeat = RRule.parse(reminder.repeatRule),
                             checklist = existingChecklist,
                             showChecklist = existingChecklist.isNotEmpty(),
+                            photos = existingPhotos,
                             places = places,
                             placeId = reminder.placeId,
                             placeTrigger = PlaceTrigger.parse(reminder.placeTrigger)
@@ -231,6 +250,44 @@ class CaptureViewModel(
         modeBeforeRepeat = if (state.mode == CaptureMode.REPEAT) modeBeforeRepeat else state.mode
         _uiState.value = state.copy(mode = CaptureMode.REPEAT)
     }
+
+    /** Copies a picked image into app storage, then shows it on the sheet. */
+    fun addPhotoFromUri(uri: android.net.Uri, onFailed: () -> Unit) {
+        appScope.launch {
+            val fileName = attachmentRepository.importImage(uri)
+            if (fileName == null) {
+                onFailed()
+                return@launch
+            }
+            // update{} rather than value = value.copy: this runs on the IO
+            // dispatcher and a keystroke landing at the same instant would
+            // otherwise drop either the character or the photo.
+            _uiState.update { it.copy(photos = it.photos + PhotoDraft(fileName)) }
+        }
+    }
+
+    /** The camera wrote straight into our own file, so there's nothing to copy. */
+    fun addCapturedPhoto(fileName: String) {
+        _uiState.update { it.copy(photos = it.photos + PhotoDraft(fileName)) }
+    }
+
+    /**
+     * Removes a photo from the sheet.
+     *
+     * A saved attachment is only marked for deletion — it is actually removed
+     * in [save], like every other edit on this sheet. Deleting it here would
+     * mean backing out of an edit still destroyed the picture, which is not
+     * what dismissing a sheet has ever meant.
+     */
+    fun removePhoto(photo: PhotoDraft) {
+        _uiState.update {
+            it.copy(photos = it.photos.filterNot { existing -> existing.fileName == photo.fileName })
+        }
+        photo.attachmentId?.let { photosToDelete += it }
+    }
+
+    /** Saved attachments the user has removed but not yet committed. */
+    private val photosToDelete = mutableListOf<Long>()
 
     fun openWhere() {
         _uiState.value = _uiState.value.copy(mode = CaptureMode.WHERE)
@@ -555,6 +612,7 @@ class CaptureViewModel(
                     if (checklistItems.isNotEmpty()) {
                         checklistRepository.replaceItems(newId, checklistItems)
                     }
+                    attachmentRepository.attach(newId, state.photos.map { it.fileName })
                 }
                 is CaptureTarget.Edit -> {
                     reminderRepository.updateReminderFields(
@@ -570,6 +628,14 @@ class CaptureViewModel(
                     // Always called on edit, including with an empty list, so
                     // deleting every item actually removes the checklist.
                     checklistRepository.replaceItems(target.reminderId, checklistItems)
+                    // Only the drafts: photos that already have a row are
+                    // already attached, and re-inserting them would double up.
+                    attachmentRepository.attach(
+                        target.reminderId,
+                        state.photos.filter { it.attachmentId == null }.map { it.fileName }
+                    )
+                    photosToDelete.forEach { attachmentRepository.delete(it) }
+                    photosToDelete.clear()
                 }
             }
             _uiState.value = _uiState.value.copy(isSaving = false, savedSuccessfully = true)

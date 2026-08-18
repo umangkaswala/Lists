@@ -31,6 +31,10 @@ class ListsApplication : Application() {
         // WorkManager job would buy nothing but a second thing to get wrong.
         container.applicationScope.launch {
             container.reminderRepository.purgeExpiredBin()
+            // Attachment files aren't in the database, so nothing removes them
+            // when a reminder is deleted for good. Without this sweep every
+            // photo ever attached would stay on the phone forever.
+            container.attachmentRepository.purgeOrphanFiles()
         }
     }
 }

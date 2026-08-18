@@ -109,6 +109,19 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/hello_widget_info" />
         </receiver>
+        <!-- Lets the camera app write a photo straight into our attachments
+             folder. Without a FileProvider, handing it a file:// URI throws
+             FileUriExposedException on anything since Android 7. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
     </application>
 
 </manifest>
