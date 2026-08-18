@@ -15,6 +15,7 @@ import com.stackpointer.lists.data.repository.ReminderRepository
 import com.stackpointer.lists.places.PlaceTrigger
 import com.stackpointer.lists.recurrence.RRule
 import com.stackpointer.lists.recurrence.rruleSummary
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -96,7 +97,14 @@ class ReminderDetailViewModel(
     listRepository: ListRepository,
     private val checklistRepository: ChecklistRepository,
     private val placeRepository: PlaceRepository,
-    private val attachmentRepository: AttachmentRepository
+    private val attachmentRepository: AttachmentRepository,
+    /**
+     * For the one write that outlives this screen. Deleting pops Detail off the
+     * back stack, which clears the view model and cancels [viewModelScope] —
+     * the same scope-lifetime trap CLAUDE.md records from Phase 4, and it would
+     * silently leave the reminder undeleted.
+     */
+    private val appScope: CoroutineScope
 ) : ViewModel() {
 
     private val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
@@ -198,6 +206,15 @@ class ReminderDetailViewModel(
         viewModelScope.launch { checklistRepository.setCompleted(itemId, completed) }
     }
 
+    /**
+     * Design S11's Delete. Goes to the recycle bin, never straight to
+     * permanent: Delete means "recoverable for 30 days" everywhere else in this
+     * app, and only the bin's own "Delete now" is final.
+     */
+    fun moveToBin() {
+        appScope.launch { reminderRepository.moveToBin(listOf(reminderId)) }
+    }
+
     fun toggleImportant() {
         viewModelScope.launch {
             reminderRepository.setImportant(reminderId, !uiState.value.isImportant)
@@ -253,7 +270,8 @@ class ReminderDetailViewModel(
         private val listRepository: ListRepository,
         private val checklistRepository: ChecklistRepository,
         private val placeRepository: PlaceRepository,
-        private val attachmentRepository: AttachmentRepository
+        private val attachmentRepository: AttachmentRepository,
+        private val appScope: CoroutineScope
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -263,7 +281,8 @@ class ReminderDetailViewModel(
                 listRepository,
                 checklistRepository,
                 placeRepository,
-                attachmentRepository
+                attachmentRepository,
+                appScope
             ) as T
         }
     }

@@ -4,22 +4,38 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phase 7 built, code-reviewed, and verified as far as an
-emulator allows. It is NOT signed off — geofencing cannot be proven on this
-emulator (Play Services refuses to activate registrations without a Google
-account), so the walk-test at the end of the Phase 7 entry is a real
-dependency. A spec re-check of Phases 1–4 fixed five more deviations, and
-Phase 8 (voice capture + photo attachments) is built and emulator-verified.
-Start Phase 9 next (Settings & onboarding polish) — and note Phase 9 owes the
-privacy copy for dictation, which Phase 8 deliberately left to it.
+**Current status: Phases 0-8 built. Phase 8 was followed by a full
+_dead-control audit_ (below) which found nine controls that did nothing, all now
+working. Nothing is known to be broken. Phase 9 (Settings & onboarding polish)
+is next, and it owes the privacy copy for dictation that Phase 8 deliberately
+left to it.
 
-Umang has said he will run the Phase 5 and Phase 7 device tests at the end
-rather than between phases, so those two remain unsigned-off.**
+Phase 7 (places/geofencing) is the one piece that is NOT signed off: geofencing
+cannot be proven on an emulator at all. See the device-test list immediately
+below.**
 
-Phase 5's phone-only checks — real Doze, Samsung battery management, a reboot
-with a secure lock screen, real sound and lock-screen presentation — were run by
-Umang on 2026-08-18 and came back clean. The "Still needs the phone" list in the
-Phase 5 entry below is kept as the script to re-run after any alarm change.
+## 🔵 Device tests Umang still owes — keep this list
+
+Umang has said, twice, that he will do all device testing **at the end** rather
+than between phases. This is the running list; nothing here is a known bug, it is
+all "cannot be proven on an emulator".
+
+1. **Phase 5 — alarms.** Real Doze, Samsung battery management, a reboot with a
+   secure lock screen, real sound/vibration/lock-screen presentation. *(Umang ran
+   this once on 2026-08-18 and it passed. The script in the Phase 5 entry is kept
+   to re-run after any alarm change.)*
+2. **Phase 7 — the geofence walk test.** The full script is at the end of the
+   Phase 7 entry. **This is a real dependency, not a formality** — Play Services
+   never activates a fence on this emulator, so no amount of emulator work can
+   close the gap.
+3. **Phase 8 — actually speaking a reminder.** The emulator has no microphone.
+   The recogniser launches correctly with our own prompt; whether dictated words
+   arrive and parse can only be checked by talking to it. Now also from the
+   **Today** screen's pill, which was fixed in the audit below.
+4. **Phase 8 — taking a photo with the real camera.** The gallery path is
+   verified; the camera path is verified only as far as launching the camera.
+5. **Cold-start time.** 9.2 s on a loaded emulator. Worth re-measuring on real
+   hardware — it should be far quicker, and if it isn't, that's worth knowing.
 
 ## 🔴 Outstanding bugs — fix these before starting a new phase
 
@@ -106,7 +122,10 @@ implementation against itself.
 
 **Also still to do:** re-check the Phase 1–4 screens against their `.dc.html`
 specs, since the same blind spot applied to all of them and there may be more
-deviations like this one.
+deviations like this one. — **Done 2026-08-18**, five deviations found (see
+"Spec re-check" below), and a follow-up **dead-control audit** found nine
+controls that did nothing because the phase they were waiting for had already
+shipped.
 
 **Process note (2026-08-17):** from Phase 2 onward, every phase gets a
 `/code-review` pass on the diff after self-verification and before
@@ -423,9 +442,11 @@ command; otherwise the round-trip latency silently invalidates the test.
 - Search has a "Clear" button for recent searches that the design doesn't show
   (kept — otherwise the stored history can never be cleared).
 - Checklist rows have no drag-to-reorder yet, though the design shows drag
-  handles. Add/edit/tick/remove all work.
+  handles. Add/edit/tick/remove all work. **Fixed in the dead-control audit
+  below (2026-08-18).**
 - The "Photos" search filter is present but stubbed, since photo attachments
-  don't exist until Phase 8.
+  don't exist until Phase 8. **Made real in the dead-control audit below
+  (2026-08-18).**
 
 **Note on the parallel-subagent split:** cheaper than Phase 3 in wall-clock
 terms, but the seams cost more — of the six review findings, four were in the
@@ -1087,8 +1108,189 @@ pass.
 
 - **Photos can't be opened full-screen** from Detail yet — they show as
   thumbnails. A viewer is Phase 12 polish, not a stub with a dead tap.
-- **No photo search.** Search's "Photos" filter chip is still a stub.
+- ~~**No photo search.**~~ Fixed in the dead-control audit below.
 - **Dictation language** follows the phone; there is no in-app language picker.
+
+## Dead-control audit of every built screen — ✅ DONE (2026-08-18)
+
+Not a phase. After the Phase 1–4 spec re-check found five silently dropped
+requirements, the obvious next question was whether the same thing had happened
+to **controls that were stubbed in an early phase and never revisited once the
+thing they needed existed**. It had, nine times.
+
+The audit read every screen's `.dc.html` spec against the code, then grepped the
+whole codebase for every remaining `notYetAvailable(...)` call and every "coming
+soon" string, and asked of each one: *does the feature it is waiting for exist
+yet?*
+
+**This is a different failure from a spec deviation.** Nothing here was built
+wrong. Each one was correctly deferred at the time and then never picked back up,
+because no phase owns "go back and finish what an earlier phase parked". Nine
+buttons and rows in a shipped-feeling app did nothing but apologise.
+
+### The nine
+
+1. **Detail's Delete did nothing** — it showed "Deleting is coming in a later
+   phase". The recycle bin has existed since **Phase 6**. The single most
+   destructive-looking control on the screen was inert for two phases.
+2. **Detail's Share did nothing.** Now shares the reminder as plain text through
+   the system share sheet — title, due date, repeat rule, place, note and
+   checklist. Nothing to do with S15's "Shared with 2 people", which still needs
+   the account system v1 doesn't have.
+3. **Detail's Due row did nothing** ("Changing the date is coming in a later
+   phase") — the When editor has existed since **Phase 2**.
+4. **Detail's List row did nothing** — the list picker has existed since
+   **Phase 4**.
+   S11 is explicit: *"Tapping a row opens that editor directly."* All four rows
+   now open their own editor — Due → When, List → List picker, Repeat → Repeat,
+   Place → Where — rather than dumping the user in the typing view to find the
+   right icon.
+5. **Today's pill mic did nothing.** Phase 8 wired dictation into Home and
+   Search and missed the third pill — so the one screen whose entire job is
+   "what's due now" was the only place the mic apologised.
+6. **"Add to Today" didn't add anything to today.** S04: *"Capture pill label
+   becomes 'Add to Today' and pre-fills today's date chip."* It opened a blank
+   sheet, so a reminder added from the Today screen got **no due date at all**
+   and then didn't appear on Today. Pressing the button on a screen called Today
+   produced something that wasn't on it.
+7. **Checklist: Enter did nothing.** S09: *"'Add an item' is a permanent last
+   row — Enter on the keyboard creates the next one."* Every item needed a tap
+   on "Add an item" first. Enter now creates the next row **and moves the caret
+   into it**, so a five-item list is typed without touching the screen.
+8. **Checklist rows had no drag-to-reorder** despite S09's drag handle and
+   "long-press to reorder" — flagged as a known deviation back in Phase 4 and
+   never picked up. Order is the whole point of a checklist; the steps of a
+   recipe are not a set.
+9. **Search's Photos filter did nothing.** Attachments have existed since
+   **Phase 8**; the chip still said "Photo search is coming in a later phase".
+
+**And one that wasn't dead, just empty:** the Lists screen's support line read a
+flat **"List"** under every list name. S15 says *"Support line carries the
+meaningful state"*, and "List" carries none. It now reads "6 reminders" — or
+"Default list · 6 reminders", or "Nothing to do".
+
+### How the fixes were built, where it mattered
+
+- **`CaptureTarget` gained an `initialMode`**, so a caller can open the sheet
+  straight onto a sub-editor. That is what makes S11's "opens that editor
+  directly" possible at all.
+- **Detail's delete runs on the application scope, not `viewModelScope`.**
+  Deleting pops Detail off the back stack, which clears the view model — a bin
+  write launched there would be cancelled by the very navigation that follows.
+  This is the scope-lifetime trap CLAUDE.md already records twice, and it would
+  have looked exactly like "sometimes delete doesn't work".
+- **Delete goes to the bin behind a confirm dialog** that says so, and says
+  outright when a repeating reminder will stop repeating. Consistent with the
+  same decision made in Phase 6: Delete means "recoverable for 30 days"
+  everywhere except the bin's own "Delete now".
+- **`modeBeforeRepeat` had to move above `init`.** A property initialiser runs
+  *after* the init block, so a `var` declared below it silently overwrites
+  whatever init assigned — and init now opens sub-editors. Left alone this would
+  have been a genuinely baffling bug: opening Repeat from Detail would land the
+  user on the When panel on the way out.
+- **The Today prefill is a _default_, not a choice.** Typing "call the bank
+  tomorrow" still moves the chip to tomorrow; only the absence of a date in the
+  text leaves today's default in place. A one-off write at startup would have
+  been wiped by the first keystroke, because the sheet adopts the parse wholesale
+  for any field the user hasn't taken over.
+- **The reorder gesture asks the view model whether a move happened** instead of
+  bounds-checking against a list it captured when the drag began. A
+  `pointerInput` block does not necessarily see later state, and a stale list
+  would have made dragging silently stop working after a row was added.
+
+### Verified on the emulator, control by control
+
+Every one was driven as a user would, not just compiled:
+
+- Detail's **Due** row opened the When panel pre-filled with the reminder's own
+  date and time; the **List** row opened the picker with the current list
+  already selected.
+- **Delete** showed its dialog, binned the reminder, popped back to Home, and
+  the counts dropped (Today 3 → 2, Work 2 → 1). The reminder was then found in
+  the recycle bin reading "Deleted today · 30 days left", and restored intact —
+  proving the write survived the navigation that clears the view model.
+- **Share** opened the system chooser with the preview "Send the quarterly
+  report / Due: Aug 18, 2026, 5:11 PM".
+- **"Add to Today"** pre-filled a "Today, 7:00 pm" chip at 6:20 pm — the next
+  whole hour, the same rule the When editor's date field uses. Typing "Call the
+  bank tomorrow" then moved the chip to **Tomorrow**, confirming the default
+  yields to the text.
+- **Today's mic** launched the recogniser with our own prompt.
+- **Checklist Enter**: "One", Enter, "Two", Enter, "Three" typed three rows
+  without a single screen tap.
+- **Checklist reorder**: long-pressed the handle and dragged "One" two rows down
+  → "Two, Three, One". Then dragged it *past* the end, held, and dragged back up
+  two rows → back to "One, Two, Three", confirming the end-of-list case doesn't
+  strand the row or bank up movement it has to pay off later.
+- **Search's Photos filter**: "6 results" for a query became "1 result" — the one
+  reminder with a photo on it.
+- **Lists** rows read "Default list · 6 reminders" and "2 reminders", matching
+  Home's tiles exactly.
+
+98 unit tests pass; no crash or ANR in logcat throughout.
+
+### Three problems found by my own review, before the code review ran
+
+1. **The reorder gesture bounds-checked against a stale list** — see above. Fixed
+   by making the view model authoritative.
+2. **A fast drag lost movement.** The handler applied at most one row per
+   callback and then discarded the remainder, so a quick two-row drag moved one
+   row. Caught by the emulator disagreeing with itself between two runs of the
+   same gesture, which is exactly the kind of thing that gets written off as
+   "adb being flaky" rather than investigated. It now consumes the accumulated
+   distance in a loop.
+
+3. **Home presented a screenful of zeros as fact on every cold start.**
+   `HomeUiState.isLoading` existed and was set correctly — and no screen ever
+   read it. So for as long as the first Room query took (about a second on the
+   emulator, caught by accident in a mid-load screenshot) Home painted the
+   default state as though it were real: "Today 0 · 0 overdue · 0 to go" above
+   list tiles reading 0. **Home was the only one of the four list screens whose
+   `isEmpty` ignored `isLoading`** — Today, Completed and the recycle bin all
+   define it as `!isLoading && …`. Now it matches them.
+
+   The first attempt at that fix was itself wrong, and worth recording: deriving
+   `isEmpty` from `sections.isEmpty()` looked equivalent and wasn't. Selecting a
+   list filter with nothing open in it empties the sections while the database is
+   full — which would have shown the first-run "Nothing to remember yet" screen
+   to someone with plenty of reminders, **and hidden the very filter chips needed
+   to get back out of the filter.** It now keys off the reminders table itself.
+   Caught by asking "what else empties `sections`?" before believing the green
+   build.
+
+### ⚠️ The `/code-review` pass did NOT run — outstanding
+
+CLAUDE.md makes `/code-review` step 4 of every phase, before committing. It was
+attempted **seven times** across this session and every attempt came back
+`API Error: 529 Overloaded` — a service outage, not a repo problem. Rather than
+pretend the step happened, it is recorded here as owed:
+
+**Run `/code-review high` on this commit's diff when the service is back**, and
+fix or explain anything it finds. The self-review above stood in for it and found
+three real problems, which is a decent showing but not a substitute — on Phases
+5–8 the review consistently found things I had missed, including two that made a
+whole feature dead.
+
+### Deliberately NOT fixed — these need Umang's call
+
+- **Today's `filter_list` and overflow buttons are still dead.** S04 *draws*
+  both but the spec text never says what either does. Guessing is how you end up
+  with a filter nobody wants; the Completed screen's select-mode icon was already
+  one inference too many. **Question for Umang: what should these do?** A
+  plausible answer is filter-by-list and a "select several" mode.
+- **S14 says selection mode is reachable "from any list via long-press".** It
+  exists on Completed and the recycle bin only; Home, Today and Search have no
+  long-press. That is a feature, not a stub — worth its own slot rather than
+  being smuggled into an audit.
+- **S14's selection top bar has no overflow**, which the design draws. Nothing
+  obvious to put in it yet.
+- **Detail has no Alert style row and no top-bar overflow**, both of which the
+  S11 mockup shows. Alert style belongs with Phase 9's Settings work, since
+  that's where the notification channel decisions live.
+- **S11's "Edited 14 Aug 2026 · synced" footer** is not built, and the "synced"
+  half would be a lie in a local-only app.
+- **S06's "keyboard suggestion strip mirrors the parse"** is not built. The
+  parsed chips already show the same information directly above the keyboard.
 
 ## Phases 9–12 — ⬜ NOT STARTED
 

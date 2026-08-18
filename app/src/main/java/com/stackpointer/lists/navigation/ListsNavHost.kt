@@ -136,7 +136,13 @@ fun ListsNavHost(
                 TodayScreen(
                     onBack = { navController.popBackStack() },
                     onOpenReminder = { id -> navController.navigate(ListsDestinations.reminderDetail(id)) },
-                    onAddReminder = { openCapture(CaptureTarget.New()) }
+                    // Design S04: the pill "pre-fills today's date chip", so a
+                    // reminder added from Today actually lands on Today rather
+                    // than arriving with no date and never showing up here.
+                    onAddReminder = { dueAt -> openCapture(CaptureTarget.New(prefillDueAt = dueAt)) },
+                    onVoiceCapture = { spoken, dueAt ->
+                        openCapture(CaptureTarget.New(prefillText = spoken, prefillDueAt = dueAt))
+                    }
                 )
             }
             composable(ListsDestinations.SEARCH) {
@@ -153,7 +159,7 @@ fun ListsNavHost(
                 ReminderDetailScreen(
                     reminderId = reminderId,
                     onBack = { navController.popBackStack() },
-                    onEdit = { openCapture(CaptureTarget.Edit(reminderId)) }
+                    onEdit = { mode -> openCapture(CaptureTarget.Edit(reminderId, mode)) }
                 )
             }
         }

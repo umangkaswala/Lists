@@ -59,8 +59,19 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -183,6 +194,7 @@ fun CaptureSheetContent(
                     onChecklistToggle = viewModel::toggleChecklistItem,
                     onChecklistRemove = viewModel::removeChecklistItem,
                     onChecklistAdd = viewModel::addChecklistItem,
+                    onChecklistMove = viewModel::moveChecklistItem,
                     onOpenListPicker = viewModel::openListPicker,
                     onStub = ::showStub,
                     onSend = viewModel::save
@@ -247,6 +259,7 @@ private fun TypingContent(
     onChecklistToggle: (Int) -> Unit,
     onChecklistRemove: (Int) -> Unit,
     onChecklistAdd: () -> Unit,
+    onChecklistMove: (Int, Int) -> Boolean,
     onOpenListPicker: () -> Unit,
     onStub: (String) -> Unit,
     onSend: () -> Unit
@@ -323,7 +336,8 @@ private fun TypingContent(
                 onTextChange = onChecklistTextChange,
                 onToggle = onChecklistToggle,
                 onRemove = onChecklistRemove,
-                onAdd = onChecklistAdd
+                onAdd = onChecklistAdd,
+                onMove = onChecklistMove
             )
         }
 
@@ -393,10 +407,29 @@ private fun ChecklistSection(
     onTextChange: (Int, String) -> Unit,
     onToggle: (Int) -> Unit,
     onRemove: (Int) -> Unit,
-    onAdd: () -> Unit
+    onAdd: () -> Unit,
+    onMove: (Int, Int) -> Boolean
 ) {
+    val rowHeightPx = with(LocalDensity.current) { 44.dp.toPx() }
+    // Which item the finger is currently carrying. Hoisted out of the rows
+    // because the dragged item changes index as it moves, while the gesture
+    // stays with the slot it started in.
+    var draggingIndex by remember { mutableIntStateOf(-1) }
+
+    // Design S09: "Enter on the keyboard creates the next one." Creating the
+    // row without moving the caret into it would still leave the user reaching
+    // for the screen between every item, so the new row takes focus too.
+    var focusTarget by remember { mutableStateOf(-1) }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         items.forEachIndexed { index, item ->
+            val focusRequester = remember { FocusRequester() }
+            LaunchedEffect(focusTarget, items.size) {
+                if (focusTarget == index) {
+                    focusTarget = -1
+                    focusRequester.requestFocus()
+                }
+            }
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 IconButton(onClick = { onToggle(index) }) {
                     Icon(
@@ -426,7 +459,21 @@ private fun ChecklistSection(
                         textDecoration = if (item.isCompleted) TextDecoration.LineThrough else null
                     ),
                     cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    keyboardActions = KeyboardActions(
+                        onNext = {
+                            onAdd()
+                            // The view model refuses to stack blank rows, so
+                            // Enter on a row while a blank one already exists
+                            // lands on that one rather than adding a second.
+                            focusTarget = if (items.lastOrNull()?.text.isNullOrBlank()) {
+                                items.lastIndex
+                            } else {
+                                items.size
+                            }
+                        }
+                    ),
+                    modifier = Modifier.weight(1f).focusRequester(focusRequester),
                     decorationBox = { inner ->
                         if (item.text.isEmpty()) {
                             Text(
@@ -446,6 +493,50 @@ private fun ChecklistSection(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                // Design S09: drag handle on the trailing edge, long-press to
+                // reorder. Long-press rather than a plain drag so the gesture
+                // can't be confused with the sheet's own drag-to-dismiss.
+                var accumulated by remember { mutableFloatStateOf(0f) }
+                Icon(
+                    imageVector = Icons.Rounded.DragHandle,
+                    contentDescription = "Reorder item",
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .pointerInput(index) {
+                            detectDragGesturesAfterLongPress(
+                                onDragStart = { accumulated = 0f; draggingIndex = index },
+                                onDragEnd = { draggingIndex = -1 },
+                                onDragCancel = { draggingIndex = -1 },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    accumulated += dragAmount.y
+                                    // A loop, not a single step: a fast drag
+                                    // delivers several rows' worth of movement
+                                    // in one callback, and firing once per
+                                    // callback left the row trailing behind the
+                                    // finger by however much was discarded.
+                                    while (kotlin.math.abs(accumulated) >= rowHeightPx) {
+                                        val from = draggingIndex
+                                        if (from == -1) break
+                                        val step = if (accumulated > 0) 1 else -1
+                                        // The view model owns the bounds check —
+                                        // see moveChecklistItem's doc comment.
+                                        if (!onMove(from, from + step)) {
+                                            // Already at the end. Drop the
+                                            // travel so dragging back the other
+                                            // way responds immediately instead
+                                            // of first paying off a debt.
+                                            accumulated = 0f
+                                            break
+                                        }
+                                        draggingIndex = from + step
+                                        accumulated -= rowHeightPx * step
+                                    }
+                                }
+                            )
+                        }
+                )
             }
         }
 

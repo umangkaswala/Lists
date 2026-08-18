@@ -33,6 +33,7 @@ import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Snooze
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +43,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -50,14 +52,19 @@ import androidx.compose.runtime.setValue
 import java.time.Instant
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.foundation.horizontalScroll
+import android.content.Context
+import android.content.Intent
+import com.stackpointer.lists.capture.CaptureMode
 import com.stackpointer.lists.capture.PhotoThumbnail
 import com.stackpointer.lists.ui.theme.ListsCorner
 import androidx.compose.ui.unit.dp
@@ -68,7 +75,16 @@ import com.stackpointer.lists.di.currentAppContainer
 import kotlinx.coroutines.launch
 
 @Composable
-fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Unit) {
+fun ReminderDetailScreen(
+    reminderId: Long,
+    onBack: () -> Unit,
+    /**
+     * Opens the Capture sheet. The [CaptureMode] says which sub-editor to land
+     * on, per design S11's "Tapping a row opens that editor directly"; null is
+     * the ordinary typing view the Edit button wants.
+     */
+    onEdit: (CaptureMode?) -> Unit
+) {
     val container = currentAppContainer()
     val viewModel: ReminderDetailViewModel = viewModel(
         factory = ReminderDetailViewModel.Factory(
@@ -77,7 +93,8 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
             container.listRepository,
             container.checklistRepository,
             container.placeRepository,
-            container.attachmentRepository
+            container.attachmentRepository,
+            container.applicationScope
         )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -103,10 +120,8 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
     }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-
-    fun notYetAvailable(feature: String) {
-        scope.launch { snackbarHostState.showSnackbar("$feature is coming in a later phase") }
-    }
+    val context = LocalContext.current
+    var confirmDelete by remember { mutableStateOf(false) }
 
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
@@ -141,10 +156,16 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
             if (state.found) {
                 DetailBottomBar(
                     isCompleted = state.isCompleted,
-                    onEdit = onEdit,
+                    onEdit = { onEdit(null) },
                     onSnooze = viewModel::snooze,
-                    onShare = { notYetAvailable("Sharing") },
-                    onDelete = { notYetAvailable("Deleting") },
+                    onShare = {
+                        if (!shareReminder(context, state)) {
+                            scope.launch {
+                                snackbarHostState.showSnackbar("Nothing on this phone can share text")
+                            }
+                        }
+                    },
+                    onDelete = { confirmDelete = true },
                     onComplete = viewModel::toggleCompleted
                 )
             }
@@ -207,20 +228,20 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                         icon = Icons.Rounded.CalendarToday,
                         label = "Due",
                         value = state.dueText ?: "No due date",
-                        onClick = { notYetAvailable("Changing the date") }
+                        onClick = { onEdit(CaptureMode.WHEN) }
                     )
                     PropertyRow(
                         icon = Icons.Rounded.List,
                         label = "List",
                         value = state.listName,
                         valueColor = Color(state.listColorArgb),
-                        onClick = { notYetAvailable("Moving lists") }
+                        onClick = { onEdit(CaptureMode.LIST) }
                     )
                     PropertyRow(
                         icon = Icons.Rounded.Repeat,
                         label = "Repeat",
                         value = state.repeatText,
-                        onClick = onEdit,
+                        onClick = { onEdit(CaptureMode.REPEAT) },
                         showDivider = state.placeText != null
                     )
                     // Only shown when there is one: an always-present "Place:
@@ -232,7 +253,7 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                             label = "Place",
                             value = place,
                             valueColor = MaterialTheme.colorScheme.tertiary,
-                            onClick = onEdit,
+                            onClick = { onEdit(CaptureMode.WHERE) },
                             showDivider = false
                         )
                     }
@@ -353,6 +374,76 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
             HistoryCard(state)
         }
     }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Move to recycle bin?") },
+            text = {
+                Text(
+                    // Says where it goes and that it comes back, because Delete
+                    // everywhere else in this app means "recoverable for 30
+                    // days" and a repeating reminder also stops repeating.
+                    if (state.repeats) {
+                        "This repeating reminder stops repeating. You can restore " +
+                            "it from the recycle bin for the next 30 days."
+                    } else {
+                        "You can restore it from the recycle bin for the next 30 days."
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    // Deliberately not viewModelScope: popping this screen
+                    // clears the view model, and a bin write launched there
+                    // would be cancelled by the very navigation that follows.
+                    viewModel.moveToBin()
+                    onBack()
+                }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmDelete = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+/**
+ * Shares the reminder as plain text through the system share sheet.
+ *
+ * Nothing to do with design S15's "Shared with 2 people", which needs the
+ * account system v1 doesn't have — this is the ordinary Android share the S11
+ * bottom bar draws, and it works entirely offline.
+ */
+private fun shareReminder(context: Context, state: ReminderDetailUiState): Boolean {
+    val lines = buildList {
+        add(state.title)
+        state.dueText?.let { add("Due: $it") }
+        if (state.repeats) add("Repeats: ${state.repeatText}")
+        state.placeText?.let { add("Place: $it") }
+        state.note?.takeIf { it.isNotBlank() }?.let {
+            add("")
+            add(it)
+        }
+        if (state.checklist.isNotEmpty()) {
+            add("")
+            state.checklist.forEach { item ->
+                add(if (item.isCompleted) "[x] ${item.text}" else "[ ] ${item.text}")
+            }
+        }
+    }
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_SUBJECT, state.title)
+        putExtra(Intent.EXTRA_TEXT, lines.joinToString(System.lineSeparator()))
+    }
+    // A chooser rather than a bare ACTION_SEND: without one the system may pick
+    // a default silently. Guarded because a device with nothing to handle it
+    // would otherwise crash the app on a tap that should just say "no".
+    return runCatching {
+        context.startActivity(Intent.createChooser(send, "Share reminder"))
+    }.isSuccess
 }
 
 /**

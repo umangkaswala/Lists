@@ -122,6 +122,20 @@ private fun defaultTimeOn(date: LocalDate, zone: ZoneId): LocalTime {
     return if (nextHour.toLocalDate() == now.toLocalDate()) nextHour.toLocalTime() else LocalTime.of(23, 59)
 }
 
+/**
+ * The instant "add this to today" means: today, at the time a date-only choice
+ * gets — see [defaultTimeOn], which keeps the rule identical to picking today
+ * in the When editor's date field.
+ *
+ * Read at the moment of the tap rather than remembered: a screen left open past
+ * 9 am would otherwise hand back a time that has already gone, and AlarmPlanner
+ * drops any trigger in the past.
+ */
+fun todayDueAt(zone: ZoneId = ZoneId.systemDefault()): Long {
+    val today = LocalDate.now(zone)
+    return today.atTime(defaultTimeOn(today, zone)).atZone(zone).toInstant().toEpochMilli()
+}
+
 class CaptureViewModel(
     private val target: CaptureTarget,
     private val reminderRepository: ReminderRepository,
@@ -148,6 +162,29 @@ class CaptureViewModel(
     private var dueOverridden = false
     private var repeatOverridden = false
 
+    /**
+     * The due date the sheet was opened with (design S04's "Add to Today"), used
+     * as the fallback whenever the text says nothing about a time.
+     *
+     * It deliberately isn't an override: typing "tomorrow" should still move the
+     * chip. But it can't be a one-off write either, because [updateTitle] adopts
+     * the parse wholesale for any field the user hasn't taken over — so the very
+     * first keystroke would clear a date set only once at startup.
+     */
+    private var defaultDueAt: Long? = null
+
+    /**
+     * Repeat can be opened from the typing view's chip or from the When
+     * sub-editor's row; closing it has to go back where it came from rather
+     * than always landing on When.
+     *
+     * Declared above `init` on purpose: a property initialiser runs *after* the
+     * init block, so a `var` declared below it silently overwrites anything
+     * init assigned — and init now opens a sub-editor directly (see
+     * [CaptureTarget.initialMode]).
+     */
+    private var modeBeforeRepeat: CaptureMode = CaptureMode.WHEN
+
     init {
         scope.launch {
             val lists = listRepository.observeLists().first()
@@ -156,6 +193,7 @@ class CaptureViewModel(
 
             when (target) {
                 is CaptureTarget.New -> {
+                    defaultDueAt = target.prefillDueAt
                     _uiState.value = _uiState.value.copy(
                         lists = lists,
                         listId = defaultListId,
@@ -163,7 +201,8 @@ class CaptureViewModel(
                     )
                     // Run the prefill through the parser too, so tapping an
                     // empty-state prompt like "Buy milk tomorrow morning"
-                    // arrives with its chips already filled in.
+                    // arrives with its chips already filled in. This also
+                    // applies [defaultDueAt] when the text says nothing.
                     updateTitle(target.prefillText)
                 }
                 is CaptureTarget.Edit -> {
@@ -207,6 +246,20 @@ class CaptureViewModel(
                     }
                 }
             }
+
+            // Design S11: "Tapping a row opens that editor directly." Applied
+            // after the load so the panel opens on real data, and skipped
+            // entirely for a reminder that turned out to be gone.
+            val initialMode = target.initialMode
+            if (initialMode != null && !_uiState.value.notFound) {
+                if (initialMode == CaptureMode.REPEAT) {
+                    // Goes through openRepeat so closing Repeat returns to the
+                    // typing view rather than the When panel the user never saw.
+                    openRepeat()
+                } else {
+                    _uiState.value = _uiState.value.copy(mode = initialMode)
+                }
+            }
         }
     }
 
@@ -221,7 +274,11 @@ class CaptureViewModel(
         // Adopt the parse wholesale for any field the user hasn't taken over,
         // including when it now finds nothing: editing "Buy milk tomorrow" down
         // to "Buy milk" has to remove the chip it put there, not strand it.
-        val dueAt = if (dueOverridden) state.dueAt else parsed.dueAt?.toInstant()?.toEpochMilli()
+        val dueAt = if (dueOverridden) {
+            state.dueAt
+        } else {
+            parsed.dueAt?.toInstant()?.toEpochMilli() ?: defaultDueAt
+        }
         val repeat = if (repeatOverridden) state.repeat else parsed.repeat
         val showedChipsFromText = (!dueOverridden && parsed.dueAt != null) ||
             (!repeatOverridden && parsed.repeat != null)
@@ -239,11 +296,6 @@ class CaptureViewModel(
     fun openWhen() {
         _uiState.value = _uiState.value.copy(mode = CaptureMode.WHEN)
     }
-
-    // Repeat can be opened from the typing view's chip or from the When
-    // sub-editor's row; closing it has to go back where it came from rather
-    // than always landing on When.
-    private var modeBeforeRepeat: CaptureMode = CaptureMode.WHEN
 
     fun openRepeat() {
         val state = _uiState.value
@@ -510,6 +562,24 @@ class CaptureViewModel(
         if (index !in items.indices) return
         items.removeAt(index)
         _uiState.value = _uiState.value.copy(checklist = items)
+    }
+
+    /**
+     * Design S09's "long-press to reorder". Order is the whole point of a
+     * checklist — the steps of a recipe are not a set.
+     *
+     * Returns whether the move happened, so the caller can track which item the
+     * finger is carrying without having to know how many items there are. A
+     * gesture handler that judged the bounds itself would be reading a list
+     * captured when the drag started, which goes stale the moment a row is
+     * added or removed.
+     */
+    fun moveChecklistItem(from: Int, to: Int): Boolean {
+        val items = _uiState.value.checklist.toMutableList()
+        if (from !in items.indices || to !in items.indices || from == to) return false
+        items.add(to, items.removeAt(from))
+        _uiState.value = _uiState.value.copy(checklist = items)
+        return true
     }
 
     fun addChecklistItem() {

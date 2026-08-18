@@ -26,6 +26,10 @@ interface AttachmentDao {
     @Query("SELECT fileName FROM attachments")
     suspend fun allFileNames(): List<String>
 
+    /** Which reminders have at least one photo — design S12's Photos filter. */
+    @Query("SELECT DISTINCT reminderId FROM attachments")
+    fun observeReminderIdsWithPhotos(): Flow<List<Long>>
+
     @Insert
     suspend fun insert(attachment: AttachmentEntity): Long
 

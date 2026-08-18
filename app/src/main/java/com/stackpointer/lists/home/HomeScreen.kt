@@ -128,7 +128,7 @@ fun HomeScreen(
             // empty." A first-run screen showing "Today 0 · 0 overdue · 0 to go"
             // above an invitation to add something reads as a broken app rather
             // than a new one.
-            if (!state.isEmpty) {
+            if (!state.isLoading && !state.isEmpty) {
                 item {
                     TileGrid(
                         state = state,
@@ -144,7 +144,7 @@ fun HomeScreen(
                 }
             }
 
-            if (state.isEmpty) {
+            if (state.isEmpty) { // isEmpty already implies loaded.
                 item { HomeEmptyState(onPromptSelected = { text -> onOpenCapture(CaptureTarget.New(text)) }) }
             }
 

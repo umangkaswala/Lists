@@ -58,12 +58,20 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.stackpointer.lists.capture.todayDueAt
 import com.stackpointer.lists.di.currentAppContainer
+import com.stackpointer.lists.voice.rememberVoiceCaptureLauncher
 import com.stackpointer.lists.ui.theme.ListsCorner
 import kotlinx.coroutines.launch
 
 @Composable
-fun TodayScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit, onAddReminder: () -> Unit) {
+fun TodayScreen(
+    onBack: () -> Unit,
+    onOpenReminder: (Long) -> Unit,
+    /** Takes the due instant the new reminder starts with — see [todayDueAt]. */
+    onAddReminder: (Long) -> Unit,
+    onVoiceCapture: (String, Long) -> Unit
+) {
     val container = currentAppContainer()
     val viewModel: TodayViewModel = viewModel(
         factory = TodayViewModel.Factory(container.reminderRepository, container.checklistRepository)
@@ -81,6 +89,17 @@ fun TodayScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit, onAddReminde
     fun notYetAvailable(feature: String) {
         scope.launch { snackbarHostState.showSnackbar("$feature is coming in a later phase") }
     }
+
+    // The same dictation Home and Search offer. This pill had been left behind
+    // in Phase 8, so the one screen whose whole job is "what's due now" was the
+    // only place the mic did nothing.
+    val startVoiceCapture = rememberVoiceCaptureLauncher(
+        prompt = "What do you need to remember?",
+        onUnavailable = {
+            scope.launch { snackbarHostState.showSnackbar("This phone has no dictation app") }
+        },
+        onResult = { spoken -> onVoiceCapture(spoken, todayDueAt()) }
+    )
 
     fun handleSwipeAction(id: Long, direction: SwipeToDismissBoxValue, dismissState: SwipeToDismissBoxState) {
         if (direction == SwipeToDismissBoxValue.Settled) return
@@ -129,8 +148,8 @@ fun TodayScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit, onAddReminde
         },
         bottomBar = {
             AddToTodayPill(
-                onMicClick = { notYetAvailable("Voice capture") },
-                onAddClick = onAddReminder
+                onMicClick = startVoiceCapture,
+                onAddClick = { onAddReminder(todayDueAt()) }
             )
         }
     ) { innerPadding ->

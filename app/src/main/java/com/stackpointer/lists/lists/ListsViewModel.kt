@@ -5,18 +5,37 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.stackpointer.lists.data.entity.ReminderListEntity
 import com.stackpointer.lists.data.repository.ListRepository
+import com.stackpointer.lists.data.repository.ReminderRepository
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class ListsViewModel(private val listRepository: ListRepository) : ViewModel() {
+class ListsViewModel(
+    private val listRepository: ListRepository,
+    reminderRepository: ReminderRepository
+) : ViewModel() {
 
     val lists: StateFlow<List<ReminderListEntity>> = listRepository.observeLists().stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = emptyList()
     )
+
+    /**
+     * Open reminders per list. Design S15: "Support line carries the meaningful
+     * state" — the row used to read a flat "List", which says nothing at all.
+     */
+    val openCounts: StateFlow<Map<Long, Int>> = reminderRepository.observeActive()
+        .map { reminders ->
+            reminders.filterNot { it.isCompleted }.groupingBy { it.listId }.eachCount()
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyMap()
+        )
 
     fun createList(name: String, colorArgb: Int) {
         if (name.isBlank()) return
@@ -33,10 +52,13 @@ class ListsViewModel(private val listRepository: ListRepository) : ViewModel() {
         viewModelScope.launch { listRepository.reorder(newOrder) }
     }
 
-    class Factory(private val listRepository: ListRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val listRepository: ListRepository,
+        private val reminderRepository: ReminderRepository
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return ListsViewModel(listRepository) as T
+            return ListsViewModel(listRepository, reminderRepository) as T
         }
     }
 }

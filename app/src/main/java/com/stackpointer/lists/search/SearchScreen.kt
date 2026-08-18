@@ -79,7 +79,8 @@ fun SearchScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit) {
         factory = SearchViewModel.Factory(
             container.reminderRepository,
             container.checklistRepository,
-            container.searchHistoryStore
+            container.searchHistoryStore,
+            container.attachmentRepository
         )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -97,10 +98,6 @@ fun SearchScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit) {
         },
         onResult = { spoken -> viewModel.onQueryChange(spoken) }
     )
-
-    fun notYetAvailable(feature: String) {
-        scope.launch { snackbarHostState.showSnackbar("$feature is coming in a later phase") }
-    }
 
     LaunchedEffect(viewModel) {
         viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
@@ -132,8 +129,7 @@ fun SearchScreen(onBack: () -> Unit, onOpenReminder: (Long) -> Unit) {
                 )
                 FilterChipsRow(
                     activeFilter = state.activeFilter,
-                    onFilterSelected = viewModel::onFilterSelected,
-                    onPhotosClick = { notYetAvailable("Photo search") }
+                    onFilterSelected = viewModel::onFilterSelected
                 )
             }
         }
@@ -224,8 +220,7 @@ private fun SearchTopRow(
 @Composable
 private fun FilterChipsRow(
     activeFilter: SearchFilter?,
-    onFilterSelected: (SearchFilter) -> Unit,
-    onPhotosClick: () -> Unit
+    onFilterSelected: (SearchFilter) -> Unit
 ) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -251,8 +246,8 @@ private fun FilterChipsRow(
         )
         SearchFilterChip(
             label = "Photos",
-            selected = false,
-            onClick = onPhotosClick
+            selected = activeFilter == SearchFilter.PHOTOS,
+            onClick = { onFilterSelected(SearchFilter.PHOTOS) }
         )
     }
 }
@@ -413,6 +408,9 @@ private fun SearchBody(
                                     "No completed reminders match \"${state.matchedQuery}\"."
                                 SearchFilter.CHECKLISTS ->
                                     "No checklists match \"${state.matchedQuery}\"."
+                                SearchFilter.PHOTOS ->
+                                    "No reminders with a photo match " +
+                                        "\"${state.matchedQuery}\"."
                                 null -> "No reminders match \"${state.matchedQuery}\""
                             },
                             textAlign = TextAlign.Center,

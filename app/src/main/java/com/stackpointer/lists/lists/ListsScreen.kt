@@ -64,8 +64,11 @@ private val palette = listOf(
 @Composable
 fun ListsScreen(onBack: () -> Unit) {
     val container = currentAppContainer()
-    val viewModel: ListsViewModel = viewModel(factory = ListsViewModel.Factory(container.listRepository))
+    val viewModel: ListsViewModel = viewModel(
+        factory = ListsViewModel.Factory(container.listRepository, container.reminderRepository)
+    )
     val lists by viewModel.lists.collectAsStateWithLifecycle()
+    val openCounts by viewModel.openCounts.collectAsStateWithLifecycle()
 
     var localOrder by remember { mutableStateOf(lists) }
     var draggingId by remember { mutableStateOf<Long?>(null) }
@@ -97,6 +100,7 @@ fun ListsScreen(onBack: () -> Unit) {
             items(localOrder, key = { it.id }) { list ->
                 DraggableListRow(
                     list = list,
+                    openCount = openCounts[list.id] ?: 0,
                     isDragging = draggingId == list.id,
                     onDragStart = { draggingId = list.id },
                     onDragEnd = {
@@ -186,6 +190,7 @@ fun ListsScreen(onBack: () -> Unit) {
 @Composable
 private fun DraggableListRow(
     list: ReminderListEntity,
+    openCount: Int,
     isDragging: Boolean,
     onDragStart: () -> Unit,
     onDragEnd: () -> Unit,
@@ -241,7 +246,14 @@ private fun DraggableListRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = list.name, style = MaterialTheme.typography.bodyLarge)
                 Text(
-                    text = if (list.isDefault) "Default list" else "List",
+                    text = listOfNotNull(
+                        "Default list".takeIf { list.isDefault },
+                        when (openCount) {
+                            0 -> "Nothing to do"
+                            1 -> "1 reminder"
+                            else -> "$openCount reminders"
+                        }
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

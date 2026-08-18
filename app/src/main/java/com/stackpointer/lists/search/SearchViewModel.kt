@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.stackpointer.lists.data.entity.ChecklistItemEntity
 import com.stackpointer.lists.data.entity.ReminderEntity
 import com.stackpointer.lists.data.prefs.SearchHistoryStore
+import com.stackpointer.lists.data.repository.AttachmentRepository
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ReminderRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -31,7 +32,7 @@ import java.time.format.FormatStyle
 /** The four filter chips shown under the search field. Photos has no data behind it yet
  * (that's Phase 8) so it deliberately isn't a member of this enum — tapping it is handled
  * as a "coming later" message entirely in the screen, without touching filter state. */
-enum class SearchFilter { OPEN, COMPLETED, CHECKLISTS }
+enum class SearchFilter { OPEN, COMPLETED, CHECKLISTS, PHOTOS }
 
 /** How a result matched the query, used to decide what context line to show under its title. */
 private enum class MatchKind { TITLE, CHECKLIST, NOTE, OTHER }
@@ -63,7 +64,8 @@ data class SearchUiState(
 class SearchViewModel(
     private val reminderRepository: ReminderRepository,
     private val checklistRepository: ChecklistRepository,
-    private val searchHistoryStore: SearchHistoryStore
+    private val searchHistoryStore: SearchHistoryStore,
+    private val attachmentRepository: AttachmentRepository
 ) : ViewModel() {
 
     private val dueFormatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
@@ -95,9 +97,14 @@ class SearchViewModel(
         debouncedQuery,
         searchResults,
         checklistRepository.observeAll(),
-        activeFilter
-    ) { raw, matchedQuery, results, allChecklistItems, filter ->
-        buildState(raw, matchedQuery, results, allChecklistItems, filter)
+        // Rides along with the filter rather than taking a sixth slot: combine
+        // tops out at five typed sources.
+        activeFilter.combine(attachmentRepository.observeReminderIdsWithPhotos()) { filter, ids ->
+            filter to ids.toSet()
+        }
+    ) { raw, matchedQuery, results, allChecklistItems, filterAndPhotos ->
+        val (filter, reminderIdsWithPhotos) = filterAndPhotos
+        buildState(raw, matchedQuery, results, allChecklistItems, filter, reminderIdsWithPhotos)
     }
 
     val uiState: StateFlow<SearchUiState> = baseState
@@ -118,7 +125,8 @@ class SearchViewModel(
         matchedQuery: String,
         results: List<ReminderEntity>,
         allChecklistItems: List<ChecklistItemEntity>,
-        filter: SearchFilter?
+        filter: SearchFilter?,
+        reminderIdsWithPhotos: Set<Long>
     ): SearchUiState {
         val itemsByReminder = allChecklistItems.groupBy { it.reminderId }
 
@@ -128,6 +136,7 @@ class SearchViewModel(
                     SearchFilter.OPEN -> !reminder.isCompleted
                     SearchFilter.COMPLETED -> reminder.isCompleted
                     SearchFilter.CHECKLISTS -> !itemsByReminder[reminder.id].isNullOrEmpty()
+                    SearchFilter.PHOTOS -> reminder.id in reminderIdsWithPhotos
                     null -> true
                 }
             }
@@ -226,11 +235,17 @@ class SearchViewModel(
     class Factory(
         private val reminderRepository: ReminderRepository,
         private val checklistRepository: ChecklistRepository,
-        private val searchHistoryStore: SearchHistoryStore
+        private val searchHistoryStore: SearchHistoryStore,
+        private val attachmentRepository: AttachmentRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return SearchViewModel(reminderRepository, checklistRepository, searchHistoryStore) as T
+            return SearchViewModel(
+                reminderRepository,
+                checklistRepository,
+                searchHistoryStore,
+                attachmentRepository
+            ) as T
         }
     }
 }

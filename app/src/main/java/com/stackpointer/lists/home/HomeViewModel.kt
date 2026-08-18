@@ -105,7 +105,7 @@ class HomeViewModel(
             listTiles = listTiles,
             selectedListId = selectedListId,
             sections = sections,
-            isEmpty = reminders.isEmpty()
+            hasNoReminders = reminders.isEmpty()
         )
     }
 
