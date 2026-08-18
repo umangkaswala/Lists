@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
@@ -72,6 +73,7 @@ fun HomeScreen(
     onOpenToday: () -> Unit,
     onOpenCompleted: () -> Unit,
     onOpenRecycleBin: () -> Unit,
+    onOpenPlaces: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val container = currentAppContainer()
@@ -99,7 +101,8 @@ fun HomeScreen(
                         onOpenLists = onOpenLists,
                         onOpenSearch = onOpenSearch,
                         onOpenCompleted = onOpenCompleted,
-                        onOpenRecycleBin = onOpenRecycleBin
+                        onOpenRecycleBin = onOpenRecycleBin,
+                        onOpenPlaces = onOpenPlaces
                     )
                     AlertPermissionBanner(modifier = Modifier.padding(top = 12.dp))
                 }
@@ -157,7 +160,8 @@ private fun SearchBarRow(
     onOpenLists: () -> Unit,
     onOpenSearch: () -> Unit,
     onOpenCompleted: () -> Unit,
-    onOpenRecycleBin: () -> Unit
+    onOpenRecycleBin: () -> Unit,
+    onOpenPlaces: () -> Unit
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Surface(
@@ -200,6 +204,14 @@ private fun SearchBarRow(
                         onClick = {
                             menuOpen = false
                             onOpenLists()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Places") },
+                        leadingIcon = { Icon(Icons.Rounded.Place, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenPlaces()
                         }
                     )
                     DropdownMenuItem(

@@ -4,10 +4,12 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phase 6 built, emulator-verified and code-reviewed. Umang has
-signed off on the Phase 5 build on his own phone ("everything is working good").
-Start Phase 7 next — Places & geofencing, which needs the Plan agent first per
-CLAUDE.md, and needs his physical phone to verify.**
+**Current status: Phase 7 built, code-reviewed, and verified as far as an
+emulator allows. It is NOT signed off — geofencing cannot be proven on this
+emulator (Play Services refuses to activate registrations without a Google
+account), so the walk-test at the end of the Phase 7 entry is a real
+dependency. Start Phase 8 next (voice capture + photo attachments), or run the
+walk test first if Umang is out and about.**
 
 Phase 5's phone-only checks — real Doze, Samsung battery management, a reboot
 with a secure lock screen, real sound and lock-screen presentation — were run by
@@ -706,7 +708,189 @@ A copy bug found while re-verifying the fixes on screen — "1 reminder … wher
 - **The Completed list has no swipe actions.** The design doesn't draw any, and
   the trailing undo glyph covers the one thing a row needs to do.
 
-## Phases 7–12 — ⬜ NOT STARTED
+## Phase 7 — Places & geofencing — ⚠️ BUILT, NEEDS UMANG'S PHONE (2026-08-18)
+
+Design screens **S05 Places** and **S08 Capture — Where**, plus a Place row on
+**S11 Detail**.
+
+**This phase cannot be signed off on an emulator.** See "What the emulator
+could and couldn't prove" below — the walk-test is a real dependency, not a
+formality.
+
+### The planning pass
+
+PLAN.md and CLAUDE.md both call for the Plan agent before this phase. Umang had
+asked for agents to be left alone, so the pass was done in the main session
+instead. Five platform traps were identified up front and all five shaped the
+code:
+
+1. **Background location cannot be requested with a dialog from Android 11.**
+   The system refuses to show one; a runtime request is denied on the spot with
+   nothing on screen. The only route is a deep link to app settings — which is
+   exactly what design S05's "Fix" button is for.
+2. **Geofences are wiped by a reboot, by toggling location off and on, and by a
+   force-stop.** Three separate re-registration paths, not one.
+3. **The geofence PendingIntent must be `FLAG_MUTABLE`** on Android 12+. Play
+   Services writes the event into it; an immutable one arrives empty.
+4. **Android 12+ lets the user grant "approximate" location**, which reads as a
+   granted permission but cannot drive a geofence at all.
+5. **A geofence can't be given a schedule.** The design's "only between" window
+   has to be applied when the crossing is reported, not when it's registered.
+
+### What was built
+
+**Data** — `places` (schema-only since Phase 1) became real, and reminders
+gained `placeTrigger`, `placeWindowStartMinute`, `placeWindowEndMinute`,
+`placeWindowDays` plus an index on `placeId`. **Schema 3 → 4 with a real
+migration**, same reasoning as Phase 6: the app is on a real phone with real
+reminders on it.
+
+No foreign key from `reminders.placeId` to `places.id`: adding one to an
+existing table means rebuilding it in SQLite, and the only rule it would
+enforce — clearing the trigger when a place is deleted — is one query in
+`PlaceRepository`.
+
+**`GeofenceRegistrar`** — modelled on Phase 5's `AlarmScheduler`. Callers only
+say "something changed"; one serialised worker re-reads the database and
+reconciles. It implements the same `ReminderAlarms` interface the alarm
+scheduler does, and `AppContainer` fans one signal out to both through
+`ReminderSyncFanOut` — every reminder edit invalidates both, so wiring them
+separately would have been a dozen call sites that must never disagree.
+
+**`GeofenceReceiver`** — `goAsync()` and a `finish()` on every path, same as the
+alarm receiver. Notification copy is the design's: "You just left Work".
+
+**Re-registration** on app start, on `BOOT_COMPLETED` (via the existing
+reschedule worker, which already waits for first unlock), on
+`MODE_CHANGED`/`PROVIDERS_CHANGED` via a new exported receiver, and on a
+`GEOFENCE_NOT_AVAILABLE` event.
+
+**Places screen (S05)** — grouped by place with the address after "·", trigger
+meta in tertiary with arrive/leave glyphs, per-place delete, the 90-of-100
+warning, and a three-state permission banner.
+
+**Capture — Where (S08)** — arrive/leave segmented button, saved-place chips in
+`tertiaryContainer` (the design's rule that place triggers are tertiary
+everywhere so they never read as times), Geocoder place search, the design's
+100/200/500/1000 m radius slider, and the "only between" window with a
+day-of-week row.
+
+**Place search** uses the device's own `Geocoder` — PLAN.md's decision, no API
+key and no billing. The trade-off is visible and the UI says so: no live
+autocomplete, just type-and-search behind a Find button.
+
+### Judgment calls, flagged rather than silent
+
+- **No initial trigger.** Registering an "arrive at home" fence while already at
+  home would alert instantly, and again on every resync. Only a real crossing
+  counts. The cost: setting a reminder for where you already are does nothing
+  until you leave and come back.
+- **The radius belongs to the place, not the reminder**, and is saved the moment
+  the slider moves. The editor says so ("Shared with every reminder on Lisbon").
+- **Deleting a place keeps its reminders**, stripped of their trigger. Losing a
+  saved location shouldn't silently delete the things you wanted to be reminded
+  of there.
+- **Every saved place is listed**, including ones with no reminders — otherwise
+  there would be no way to delete them.
+- **The bin's "removed from every signed-in device" copy was not reused.** There
+  are no signed-in devices in v1.
+- **No map.** Design S05's app-bar map action needs the Maps SDK and an API key,
+  which PLAN.md explicitly avoided. Deferred with the reasoning recorded, not
+  silently dropped.
+
+### What the emulator could and couldn't prove
+
+**Proved:** the 3 → 4 migration ran over the Phase 6 database with no data loss;
+the Geocoder search returned real results ("Lisbon, Portugal") and saved a
+place; the Where editor's trigger, chips, radius slider, window and day row all
+work; the summary chip, the Places screen, and Detail's Place row all render as
+designed; all three permission banner states appear and clear correctly; the
+receiver is registered, reachable, and survives a malformed event without
+crashing; and `addGeofences` is called with the right circle
+(`38.7222,-9.1393 + 200 m, eventsFilter=[INSIDE], initialEventsFilter=[]` —
+confirming the no-initial-trigger decision reached the platform).
+
+**Could not prove:** an actual crossing firing a notification. This emulator
+image is a production build with no Google account, so Play Services logs
+`registration not active, registration not permitted` and never activates the
+fence. Our client call succeeds; GMS declines. **No amount of emulator work will
+close this gap** — it is why PLAN.md marks Phase 7 physical-device-critical.
+
+**Compensating cover:** `PlaceWindowTest` — 11 cases over the "only between"
+logic, the one piece that can be tested exhaustively without a phone and the one
+most likely to be silently wrong (a broken window means the reminder alerts at
+3 am, or never, with nothing in the logs).
+
+### `/code-review high` found 7 issues, all fixed before commit
+
+1. **The whole feature was dead.** `GeofenceRegistrar` refuses to register
+   without `ACCESS_BACKGROUND_LOCATION` (correctly — Android 10+ requires it),
+   but *nothing in the app ever requested it*, and the banner claimed place
+   reminders merely "only work while Lists is open". They didn't work at all.
+   Now requested properly, with the Android 10 dialog path and the Android 11+
+   settings path, and the banner says "won't work" because that is the truth.
+2. **Onboarding's Location button did nothing on Android 12+.** It requested
+   `ACCESS_FINE_LOCATION` alone; without `ACCESS_COARSE_LOCATION` in the same
+   call the system ignores the request outright — no dialog, straight to denied.
+3. **The 100-geofence truncation was non-deterministic.** `activePlaceReminders()`
+   had no `ORDER BY`, so `take(100)` kept an arbitrary subset that could change
+   between syncs, while the warning promised "the oldest stop working". Now
+   ordered newest-first, which is what the message describes.
+4. **A `GEOFENCE_NOT_AVAILABLE` event was logged and dropped**, leaving every
+   place reminder dead until the app was next opened — the exact failure the
+   location-settings receiver exists to prevent, arriving by a route it doesn't
+   cover. Now triggers a full rebuild.
+5. **Every sync tore down all fences and re-added them.** Milliseconds, but a
+   crossing during that gap is lost for good, and `setInitialTrigger(0)` means
+   re-registering can't recover it — and `requestSync()` fires on every reminder
+   edit. Now incremental: only fences that are actually gone are removed.
+6. **A window with equal start and end was a one-minute window**, silencing the
+   reminder 1439 minutes out of every 1440, while the editor said it ran
+   overnight. Now the whole day, with the editor saying so, and two tests.
+7. **The radius was saved on the Capture sheet's own coroutine scope** — the
+   trap CLAUDE.md already records from Phase 4. Dismissing the sheet right after
+   a slider drag could cancel the write, leaving the shown radius and the
+   registered radius disagreeing. Now on the application scope.
+
+Also fixed from the review's "worth knowing" list: `setPlaceWindowDays` had no
+UI at all (the day-of-week row was added), several members were dead code and
+were removed, and `updateReminderFields`'s `place` parameter lost its default so
+a future caller can't silently strip a reminder's trigger.
+
+### 🔴 Still needs Umang's phone — the walk test
+
+1. Open **Places**. If a banner asks for location, tap **Fix / Allow** and
+   choose **"Allow all the time"**. Place reminders do nothing at all until
+   that is set — this is the single most likely reason for nothing happening.
+2. Make a reminder, tap the **pin icon**, search for **home**, pick it, and
+   choose **When I leave**. Set the radius to **200 m**.
+3. Save it, then **physically leave** — a few hundred metres, on foot or by car.
+4. Expect a notification saying **"You just left <place>"**.
+5. Come back and repeat with **When I arrive**.
+6. Then: **restart the phone**, unlock it, and repeat step 3 to confirm
+   registrations survive a reboot.
+7. Then: turn **location off and on again** in quick settings, and repeat
+   step 3 — this is the case a receiver was added specifically to cover.
+
+**Expect it to be slow.** Android batches geofence transitions to save battery;
+a lag of a minute or two after crossing the boundary is normal, not a bug.
+Below about 100 m the platform is unreliable, which is why the slider starts
+there.
+
+### Known limitations
+
+- **No map view** (S05's app-bar map action) — needs a paid Maps API key.
+- **Place names come from the Geocoder** and are sometimes a locality rather
+  than the exact building. The place is saved under whatever name comes back;
+  renaming it isn't possible yet.
+- **The parser doesn't detect places in typed text** — "call mum when I get
+  home" won't produce a place chip. Deliberate: the parser matches nothing that
+  isn't already a saved place, and inventing places from free text is a bigger
+  feature than this phase.
+- **100 geofences per device**, warned at 90. Beyond that the oldest stop being
+  registered.
+
+## Phases 8–12 — ⬜ NOT STARTED
 
 See PLAN.md for full descriptions of each.
 
@@ -716,5 +900,8 @@ See PLAN.md for full descriptions of each.
   a real constant (`BIN_RETENTION_DAYS`) that the bin screen's own copy reads
   from, so changing it changes what the app says.
 - Real app icon: still a placeholder.
+- Design S05's full-bleed map of all geofences: deferred in Phase 7, needs the
+  Maps SDK and a billable API key, which PLAN.md deliberately avoided. Worth an
+  explicit decision before Phase 12.
 - Voice recognition privacy disclosure wording: needed by Phase 8/9, not
   written yet.

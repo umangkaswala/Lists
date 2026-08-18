@@ -115,7 +115,8 @@ class ReminderRepository(
         note: String? = null,
         dueAt: Long? = null,
         isAllDay: Boolean = false,
-        repeatRule: String? = null
+        repeatRule: String? = null,
+        place: PlaceTriggerDraft? = null
     ): Long {
         val id = reminderDao.insert(
             ReminderEntity(
@@ -126,7 +127,12 @@ class ReminderRepository(
                 isAllDay = isAllDay,
                 repeatRule = repeatRule.takeIf { dueAt != null },
                 seriesStartAt = dueAt.takeIf { repeatRule != null },
-                createdAt = Instant.now().toEpochMilli()
+                createdAt = Instant.now().toEpochMilli(),
+                placeId = place?.placeId,
+                placeTrigger = place?.trigger,
+                placeWindowStartMinute = place?.windowStartMinute,
+                placeWindowEndMinute = place?.windowEndMinute,
+                placeWindowDays = place?.windowDays
             )
         )
         alarms.requestSync()
@@ -140,7 +146,10 @@ class ReminderRepository(
         listId: Long,
         dueAt: Long?,
         isAllDay: Boolean,
-        repeatRule: String?
+        repeatRule: String?,
+        // No default: this overwrites all five place columns, so a caller that
+        // forgot it would silently strip a reminder's place trigger.
+        place: PlaceTriggerDraft?
     ) {
         val current = reminderDao.getById(id) ?: return
         // A rule with no due date has nothing to recur from, so it's dropped.
@@ -162,7 +171,12 @@ class ReminderRepository(
                     dueAt
                 } else {
                     current.seriesStartAt ?: dueAt
-                }
+                },
+                placeId = place?.placeId,
+                placeTrigger = place?.trigger,
+                placeWindowStartMinute = place?.windowStartMinute,
+                placeWindowEndMinute = place?.windowEndMinute,
+                placeWindowDays = place?.windowDays
             )
         )
         alarms.requestSync()

@@ -12,6 +12,7 @@ workManager = "2.11.2"
 datastore = "1.2.1"
 glance = "1.1.1"
 playServicesLocation = "21.4.0"
+coroutinesPlayServices = "1.10.2"
 coreSplashscreen = "1.2.0"
 junit = "4.13.2"
 
@@ -38,6 +39,9 @@ androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidge
 androidx-glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 androidx-core-splashscreen = { group = "androidx.core", name = "core-splashscreen", version.ref = "coreSplashscreen" }
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+# Gives Play Services' Task<T> a .await(), so geofence registration reads as
+# ordinary suspending code instead of nested success/failure listeners.
+kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 
 [plugins]

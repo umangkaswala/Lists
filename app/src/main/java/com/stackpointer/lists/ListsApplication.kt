@@ -20,6 +20,11 @@ class ListsApplication : Application() {
         // alone would leave its alarms gone.
         container.alarmScheduler.requestSync()
 
+        // Same reasoning for geofences, and one more case besides: a
+        // force-stopped app loses its registered fences outright, and only
+        // being opened again can put them back.
+        container.geofenceRegistrar.requestSync()
+
         // Recycle-bin retention. Opening the app is a good enough trigger: the
         // bin is only ever *seen* from inside the app, so a reminder can't look
         // overdue for deletion before this has had a chance to run. A

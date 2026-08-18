@@ -28,6 +28,7 @@ import com.stackpointer.lists.lists.ListsScreen
 import com.stackpointer.lists.bin.RecycleBinScreen
 import com.stackpointer.lists.completed.CompletedScreen
 import com.stackpointer.lists.onboarding.OnboardingRoute
+import com.stackpointer.lists.places.PlacesScreen
 import com.stackpointer.lists.search.SearchScreen
 import com.stackpointer.lists.today.TodayScreen
 import kotlinx.coroutines.flow.first
@@ -40,6 +41,7 @@ object ListsDestinations {
     const val SEARCH = "search"
     const val COMPLETED = "completed"
     const val RECYCLE_BIN = "recycle_bin"
+    const val PLACES = "places"
     const val REMINDER_DETAIL = "reminder/{reminderId}"
 
     fun reminderDetail(reminderId: Long) = "reminder/$reminderId"
@@ -108,11 +110,18 @@ fun ListsNavHost(
                     onOpenSearch = { navController.navigate(ListsDestinations.SEARCH) },
                     onOpenToday = { navController.navigate(ListsDestinations.TODAY) },
                     onOpenCompleted = { navController.navigate(ListsDestinations.COMPLETED) },
-                    onOpenRecycleBin = { navController.navigate(ListsDestinations.RECYCLE_BIN) }
+                    onOpenRecycleBin = { navController.navigate(ListsDestinations.RECYCLE_BIN) },
+                    onOpenPlaces = { navController.navigate(ListsDestinations.PLACES) }
                 )
             }
             composable(ListsDestinations.COMPLETED) {
                 CompletedScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenReminder = { id -> navController.navigate(ListsDestinations.reminderDetail(id)) }
+                )
+            }
+            composable(ListsDestinations.PLACES) {
+                PlacesScreen(
                     onBack = { navController.popBackStack() },
                     onOpenReminder = { id -> navController.navigate(ListsDestinations.reminderDetail(id)) }
                 )

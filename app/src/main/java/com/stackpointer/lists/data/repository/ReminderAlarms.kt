@@ -1,8 +1,8 @@
 package com.stackpointer.lists.data.repository
 
 /**
- * How a repository asks for the OS alarms to be brought back in line with the
- * database. Android-free on purpose, so the repositories stay unit-testable
+ * How a repository asks for OS-side state — exact alarms, and from Phase 7
+ * geofences too — to be brought back in line with the database. Android-free on purpose, so the repositories stay unit-testable
  * and so a test can pass [None].
  *
  * [requestSync] must be non-suspending and must do its work on an
@@ -17,5 +17,20 @@ interface ReminderAlarms {
 
     object None : ReminderAlarms {
         override fun requestSync() = Unit
+    }
+}
+
+/**
+ * Fans one "the database changed" signal out to everything that mirrors it into
+ * OS state — exact alarms and geofences both.
+ *
+ * They are invalidated by exactly the same edits (completing, snoozing,
+ * binning, restoring, editing a reminder), so threading a second dependency
+ * through every repository method would be a dozen call sites that must never
+ * disagree with each other. One signal, two listeners.
+ */
+class ReminderSyncFanOut(private val targets: List<ReminderAlarms>) : ReminderAlarms {
+    override fun requestSync() {
+        targets.forEach { it.requestSync() }
     }
 }

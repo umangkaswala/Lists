@@ -108,7 +108,9 @@ fun CaptureSheetContent(
             reminderRepository = container.reminderRepository,
             listRepository = container.listRepository,
             checklistRepository = container.checklistRepository,
-            scope = scope
+            placeRepository = container.placeRepository,
+            scope = scope,
+            appScope = container.applicationScope
         )
     }
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -152,6 +154,8 @@ fun CaptureSheetContent(
                     onTitleChange = viewModel::updateTitle,
                     onOpenWhen = viewModel::openWhen,
                     onClearDue = viewModel::clearDue,
+                    onOpenWhere = viewModel::openWhere,
+                    onClearPlace = viewModel::clearPlace,
                     onOpenRepeat = viewModel::openRepeat,
                     onClearRepeat = viewModel::clearRepeat,
                     onToggleChecklist = viewModel::toggleChecklist,
@@ -172,6 +176,16 @@ fun CaptureSheetContent(
                     onTimeChange = viewModel::setTime,
                     onOpenRepeat = viewModel::openRepeat,
                     onStub = ::showStub
+                )
+                CaptureMode.WHERE -> WhereContent(
+                    state = state,
+                    onBack = viewModel::collapseToTyping,
+                    onSelectPlace = viewModel::selectPlace,
+                    onTriggerChange = viewModel::setPlaceTrigger,
+                    onRadiusChange = viewModel::setPlaceRadius,
+                    onWindowChange = viewModel::setPlaceWindow,
+                    onWindowDaysChange = viewModel::setPlaceWindowDays,
+                    onCreatePlace = viewModel::createPlace
                 )
                 CaptureMode.REPEAT -> RepeatEditor(
                     initial = state.repeat,
@@ -199,6 +213,8 @@ private fun TypingContent(
     onTitleChange: (String) -> Unit,
     onOpenWhen: () -> Unit,
     onClearDue: () -> Unit,
+    onOpenWhere: () -> Unit,
+    onClearPlace: () -> Unit,
     onOpenRepeat: () -> Unit,
     onClearRepeat: () -> Unit,
     onToggleChecklist: () -> Unit,
@@ -227,7 +243,8 @@ private fun TypingContent(
 
         val dueAt = state.dueAt
         val repeat = state.repeat
-        if (dueAt != null || repeat != null) {
+        val placeLabel = state.placeChipLabel
+        if (dueAt != null || repeat != null || placeLabel != null) {
             Spacer(Modifier.height(12.dp))
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -250,6 +267,16 @@ private fun TypingContent(
                         clearDescription = "Clear repeat",
                         onClick = onOpenRepeat,
                         onClear = onClearRepeat
+                    )
+                }
+                // Deliberately its own chip type: the design uses
+                // tertiaryContainer for place triggers everywhere so they are
+                // never mistaken for a time at a glance.
+                if (placeLabel != null) {
+                    PlaceSummaryChip(
+                        label = placeLabel,
+                        onOpen = onOpenWhere,
+                        onClear = onClearPlace
                     )
                 }
             }
@@ -279,7 +306,12 @@ private fun TypingContent(
 
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             CaptureActionIcon(Icons.Rounded.CalendarToday, "When", active = state.dueAt != null, onClick = onOpenWhen)
-            CaptureActionIcon(Icons.Rounded.Place, "Where", onClick = { onStub("Places") })
+            CaptureActionIcon(
+                Icons.Rounded.Place,
+                "Where",
+                active = state.hasPlace,
+                onClick = onOpenWhere
+            )
             CaptureActionIcon(
                 Icons.Rounded.Checklist,
                 "Checklist",
@@ -800,7 +832,7 @@ private fun WhenDatePickerDialog(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WhenTimePickerDialog(
+internal fun WhenTimePickerDialog(
     initialTime: LocalTime,
     is24Hour: Boolean,
     onDismiss: () -> Unit,

@@ -29,7 +29,17 @@ object ReminderNotifier {
 
     private val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
-    fun show(context: Context, reminder: ReminderEntity, listName: String?) {
+    fun show(
+        context: Context,
+        reminder: ReminderEntity,
+        listName: String?,
+        /**
+         * Replaces the usual time/repeat line for a place-triggered alert, so
+         * the notification can say what actually happened ("You just left
+         * Work") rather than a due time it doesn't have.
+         */
+        overrideSubtitle: String? = null
+    ) {
         NotificationChannels.ensure(context)
 
         // Posting without POST_NOTIFICATIONS throws on some OEM builds rather
@@ -44,11 +54,12 @@ object ReminderNotifier {
             return
         }
 
+        val text = overrideSubtitle ?: subtitle(reminder, listName)
         val notification = NotificationCompat.Builder(context, NotificationChannels.REMINDERS)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(reminder.title)
-            .setContentText(subtitle(reminder, listName))
-            .setStyle(NotificationCompat.BigTextStyle().bigText(subtitle(reminder, listName)))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)

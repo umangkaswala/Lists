@@ -64,9 +64,13 @@ fun OnboardingRoute(onFinished: () -> Unit) {
         notificationsAskedAndDenied = !granted
     }
 
+    // FINE and COARSE must be requested *together*. From Android 12 a request
+    // for FINE alone is ignored outright — the dialog never appears and the
+    // callback reports denied — so asking for one silently did nothing.
     val locationLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val granted = results[Manifest.permission.ACCESS_FINE_LOCATION] == true
         locationGranted = granted
         locationAskedAndDenied = !granted
     }
@@ -105,7 +109,12 @@ fun OnboardingRoute(onFinished: () -> Unit) {
             if (locationAskedAndDenied) {
                 settingsLauncher.launch(PermissionState.appSettingsIntent(context))
             } else {
-                locationLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                locationLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
             }
         },
         onContinue = { finish() },

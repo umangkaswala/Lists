@@ -11,10 +11,20 @@
          onboarding screen's "Alarms & reminders" row asks for. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
-    <!-- Declared now so the onboarding screen's optional Location row is a
-         working control rather than a dead one. Nothing reads location until
-         Phase 7 (places / geofencing). -->
+    <!-- Geofencing needs *precise* location: an approximate-only grant (which
+         Android 12+ lets the user choose) cannot drive a geofence at all.
+         COARSE is declared alongside it because the runtime request has to ask
+         for both or the system shows no "Precise" option in its dialog. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+
+    <!-- A place reminder has to fire while the app is closed, which is exactly
+         what this permission is. From Android 11 the system refuses to show a
+         dialog for it, so the Places screen deep-links to app settings instead
+         (design S05's "Fix" button). Declared with maxSdkVersion nothing:
+         it is needed on every version from 29 up. -->
+    <uses-permission
+        android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
 
     <!-- Alarms are wiped by a reboot; without this we'd never hear about it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -54,6 +64,9 @@
         <receiver
             android:name=".notifications.ReminderActionReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".places.GeofenceReceiver"
+            android:exported="false" />
 
         <!-- These are system broadcasts, sent from a different UID: exported
              MUST be true here or the receiver silently never fires. Not
@@ -67,6 +80,19 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Geofences are dropped when the user turns location off, and are not
+             restored when it comes back on. Nothing else tells us this
+             happened, so without this receiver every place reminder would go
+             quiet after a single trip through the quick-settings tile. -->
+        <receiver
+            android:name=".places.LocationSettingsReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.location.MODE_CHANGED" />
+                <action android:name="android.location.PROVIDERS_CHANGED" />
             </intent-filter>
         </receiver>
 

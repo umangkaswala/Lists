@@ -25,6 +25,10 @@ class RescheduleAlarmsWorker(
                 notifyMissed(container)
             }
             container.alarmScheduler.syncAll()
+            // Geofences are wiped by a reboot exactly as alarms are, and this
+            // worker is already the thing that runs once the device is
+            // unlocked and the database is readable.
+            container.geofenceRegistrar.requestSync()
             Result.success()
         } catch (e: Exception) {
             Result.retry()

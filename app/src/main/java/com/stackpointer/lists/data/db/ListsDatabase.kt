@@ -8,6 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.stackpointer.lists.data.dao.ChecklistItemDao
 import com.stackpointer.lists.data.dao.CompletionDao
+import com.stackpointer.lists.data.dao.PlaceDao
 import com.stackpointer.lists.data.dao.ReminderDao
 import com.stackpointer.lists.data.dao.ReminderListDao
 import com.stackpointer.lists.data.entity.ChecklistItemEntity
@@ -30,7 +31,7 @@ import java.util.concurrent.atomic.AtomicBoolean
         CompletionEntity::class,
         PlaceEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class ListsDatabase : RoomDatabase() {
@@ -38,6 +39,7 @@ abstract class ListsDatabase : RoomDatabase() {
     abstract fun reminderListDao(): ReminderListDao
     abstract fun checklistItemDao(): ChecklistItemDao
     abstract fun completionDao(): CompletionDao
+    abstract fun placeDao(): PlaceDao
 
     companion object {
         @Volatile
@@ -58,7 +60,7 @@ abstract class ListsDatabase : RoomDatabase() {
                 // Real migrations where one exists. The destructive fallback
                 // below stays as the net for any *earlier* schema bump that
                 // never got one -- it only fires when no path is registered.
-                .addMigrations(MIGRATION_2_3)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .addCallback(SeedCallback(context))
                 .build()
@@ -101,6 +103,24 @@ abstract class ListsDatabase : RoomDatabase() {
                         "SELECT `id`, `completedAt`, `dueAt`, `isAllDay`, `dueAt` FROM `reminders` " +
                         "WHERE `isCompleted` = 1 AND `completedAt` IS NOT NULL"
                 )
+            }
+        }
+
+        /**
+         * Turns the schema-only `places` table into a working one: reminders
+         * gain the trigger, the optional time window, and an index on placeId.
+         *
+         * The `places` table itself already exists -- it has been in the
+         * @Database entity list since Phase 1 precisely so this migration
+         * wouldn't have to create it.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `reminders` ADD COLUMN `placeTrigger` TEXT")
+                db.execSQL("ALTER TABLE `reminders` ADD COLUMN `placeWindowStartMinute` INTEGER")
+                db.execSQL("ALTER TABLE `reminders` ADD COLUMN `placeWindowEndMinute` INTEGER")
+                db.execSQL("ALTER TABLE `reminders` ADD COLUMN `placeWindowDays` TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_reminders_placeId` ON `reminders` (`placeId`)")
             }
         }
     }

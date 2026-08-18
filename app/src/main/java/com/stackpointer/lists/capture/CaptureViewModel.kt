@@ -2,10 +2,14 @@ package com.stackpointer.lists.capture
 
 import com.stackpointer.lists.data.entity.ReminderListEntity
 import com.stackpointer.lists.data.repository.ChecklistItemDraft
+import com.stackpointer.lists.data.entity.PlaceEntity
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
+import com.stackpointer.lists.data.repository.PlaceRepository
+import com.stackpointer.lists.data.repository.PlaceTriggerDraft
 import com.stackpointer.lists.data.repository.ReminderRepository
 import com.stackpointer.lists.parser.CaptureParser
+import com.stackpointer.lists.places.PlaceTrigger
 import com.stackpointer.lists.recurrence.RRule
 import com.stackpointer.lists.recurrence.RRuleExpander
 import kotlinx.coroutines.CoroutineScope
@@ -21,7 +25,7 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
 
-enum class CaptureMode { TYPING, WHEN, REPEAT, LIST }
+enum class CaptureMode { TYPING, WHEN, WHERE, REPEAT, LIST }
 
 data class CaptureUiState(
     val mode: CaptureMode = CaptureMode.TYPING,
@@ -34,6 +38,14 @@ data class CaptureUiState(
     val dueAt: Long? = null,
     val isAllDay: Boolean = false,
     val repeat: RRule? = null,
+    // ---- Place trigger (design S08) ----------------------------------------
+    val places: List<PlaceEntity> = emptyList(),
+    val placeId: Long? = null,
+    val placeTrigger: PlaceTrigger = PlaceTrigger.ARRIVE,
+    val placeRadiusMeters: Int = DEFAULT_PLACE_RADIUS_METERS,
+    val placeWindowStartMinute: Int? = null,
+    val placeWindowEndMinute: Int? = null,
+    val placeWindowDays: String? = null,
     /** True when the chips currently shown were read out of the typed text. */
     val parsedFromText: Boolean = false,
     /** Title with the recognised date/repeat words removed — what actually gets saved. */
@@ -47,6 +59,17 @@ data class CaptureUiState(
     val listName: String get() = lists.find { it.id == listId }?.name ?: ""
     val listColorArgb: Int get() = lists.find { it.id == listId }?.colorArgb ?: 0
 
+    val place: PlaceEntity? get() = places.find { it.id == placeId }
+    val hasPlace: Boolean get() = place != null
+
+    /** "Arrive at Home", as the summary chip shows it. */
+    val placeChipLabel: String?
+        get() = place?.let { p ->
+            val verb = if (placeTrigger == PlaceTrigger.ARRIVE) "Arrive at" else "Leave"
+            "$verb ${p.name}"
+        }
+
+
     /** The date a repeat rule counts from, for summarising a rule that omits BYDAY. */
     val repeatAnchorDate: LocalDate
         get() = dueAt?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate() }
@@ -59,6 +82,13 @@ data class CaptureUiState(
 // there's no natural ViewModelStoreOwner to clear a real ViewModel from when
 // the sheet closes — using one here leaked one retained instance per sheet open
 // for the lifetime of the app process.
+/**
+ * Google's geofencing is unreliable below about 100 m, and 200 m is far enough
+ * that a phone parked in a driveway still counts as home. It is the middle stop
+ * on the design's slider.
+ */
+const val DEFAULT_PLACE_RADIUS_METERS = 200
+
 /** The time of day a reminder lands on when only a date was chosen. */
 private val DEFAULT_TIME: LocalTime = LocalTime.of(9, 0)
 
@@ -83,7 +113,15 @@ class CaptureViewModel(
     private val reminderRepository: ReminderRepository,
     private val listRepository: ListRepository,
     private val checklistRepository: ChecklistRepository,
+    private val placeRepository: PlaceRepository,
     private val scope: CoroutineScope,
+    /**
+     * For writes that must survive the sheet closing. [scope] is the sheet's
+     * own `rememberCoroutineScope()` and dies with the composition — the trap
+     * CLAUDE.md records from Phase 4 — and a place is saved the moment it is
+     * picked, not on Send, so it needs a scope that outlives the sheet.
+     */
+    private val appScope: CoroutineScope,
     private val zone: ZoneId = ZoneId.systemDefault()
 ) {
     private val _uiState = MutableStateFlow(CaptureUiState())
@@ -99,10 +137,15 @@ class CaptureViewModel(
         scope.launch {
             val lists = listRepository.observeLists().first()
             val defaultListId = lists.find { it.isDefault }?.id ?: lists.firstOrNull()?.id
+            val places = placeRepository.observePlaces().first()
 
             when (target) {
                 is CaptureTarget.New -> {
-                    _uiState.value = _uiState.value.copy(lists = lists, listId = defaultListId)
+                    _uiState.value = _uiState.value.copy(
+                        lists = lists,
+                        listId = defaultListId,
+                        places = places
+                    )
                     // Run the prefill through the parser too, so tapping an
                     // empty-state prompt like "Buy milk tomorrow morning"
                     // arrives with its chips already filled in.
@@ -131,6 +174,15 @@ class CaptureViewModel(
                             repeat = RRule.parse(reminder.repeatRule),
                             checklist = existingChecklist,
                             showChecklist = existingChecklist.isNotEmpty(),
+                            places = places,
+                            placeId = reminder.placeId,
+                            placeTrigger = PlaceTrigger.parse(reminder.placeTrigger)
+                                ?: PlaceTrigger.ARRIVE,
+                            placeRadiusMeters = places.find { it.id == reminder.placeId }
+                                ?.radiusMeters ?: DEFAULT_PLACE_RADIUS_METERS,
+                            placeWindowStartMinute = reminder.placeWindowStartMinute,
+                            placeWindowEndMinute = reminder.placeWindowEndMinute,
+                            placeWindowDays = reminder.placeWindowDays,
                             isEditing = true
                         )
                     }
@@ -178,6 +230,81 @@ class CaptureViewModel(
         val state = _uiState.value
         modeBeforeRepeat = if (state.mode == CaptureMode.REPEAT) modeBeforeRepeat else state.mode
         _uiState.value = state.copy(mode = CaptureMode.REPEAT)
+    }
+
+    fun openWhere() {
+        _uiState.value = _uiState.value.copy(mode = CaptureMode.WHERE)
+    }
+
+    /** Picks a saved place, adopting its radius so the slider starts truthful. */
+    fun selectPlace(placeId: Long?) {
+        val state = _uiState.value
+        val radius = state.places.find { it.id == placeId }?.radiusMeters
+            ?: DEFAULT_PLACE_RADIUS_METERS
+        _uiState.value = state.copy(placeId = placeId, placeRadiusMeters = radius)
+    }
+
+    fun setPlaceTrigger(trigger: PlaceTrigger) {
+        _uiState.value = _uiState.value.copy(placeTrigger = trigger)
+    }
+
+    /**
+     * The radius belongs to the *place*, not to this reminder, so changing it
+     * here changes it for every reminder on that place. Saved straight away
+     * rather than on Send: the slider is the only place it can be edited, and a
+     * radius that silently reverted when the sheet was dismissed would be worse
+     * than one that shares.
+     */
+    fun setPlaceRadius(meters: Int) {
+        val state = _uiState.value
+        _uiState.value = state.copy(placeRadiusMeters = meters)
+        val place = state.place ?: return
+        if (place.radiusMeters == meters) return
+        appScope.launch {
+            placeRepository.savePlace(place.copy(radiusMeters = meters))
+            refreshPlaces()
+        }
+    }
+
+    fun setPlaceWindow(startMinute: Int?, endMinute: Int?) {
+        _uiState.value = _uiState.value.copy(
+            placeWindowStartMinute = startMinute,
+            placeWindowEndMinute = endMinute
+        )
+    }
+
+    fun setPlaceWindowDays(days: String?) {
+        _uiState.value = _uiState.value.copy(placeWindowDays = days?.takeIf { it.isNotBlank() })
+    }
+
+    fun clearPlace() {
+        _uiState.value = _uiState.value.copy(
+            placeId = null,
+            placeWindowStartMinute = null,
+            placeWindowEndMinute = null,
+            placeWindowDays = null
+        )
+    }
+
+    /** Saves a place the user just searched for, and selects it. */
+    fun createPlace(name: String, latitude: Double, longitude: Double, address: String?) {
+        appScope.launch {
+            val id = placeRepository.savePlace(
+                PlaceEntity(
+                    name = name,
+                    latitude = latitude,
+                    longitude = longitude,
+                    radiusMeters = _uiState.value.placeRadiusMeters,
+                    address = address
+                )
+            )
+            refreshPlaces()
+            selectPlace(id)
+        }
+    }
+
+    private suspend fun refreshPlaces() {
+        _uiState.value = _uiState.value.copy(places = placeRepository.observePlaces().first())
     }
 
     fun collapseToTyping() {
@@ -397,6 +524,18 @@ class CaptureViewModel(
         val dueToSave = state.dueAt ?: rule?.let { firstOccurrenceOf(it) }
         val ruleToSave = rule?.toRRuleString()?.takeIf { dueToSave != null }
 
+        // A trigger without a place is nothing to register, and the geofence
+        // columns are only meaningful together.
+        val placeToSave = state.placeId?.let { id ->
+            PlaceTriggerDraft(
+                placeId = id,
+                trigger = state.placeTrigger.name,
+                windowStartMinute = state.placeWindowStartMinute,
+                windowEndMinute = state.placeWindowEndMinute,
+                windowDays = state.placeWindowDays
+            )
+        }
+
         val checklistItems = state.checklist
             .map { it.copy(text = it.text.trim()) }
             .filter { it.text.isNotEmpty() }
@@ -410,7 +549,8 @@ class CaptureViewModel(
                         note = state.note,
                         dueAt = dueToSave,
                         isAllDay = state.isAllDay,
-                        repeatRule = ruleToSave
+                        repeatRule = ruleToSave,
+                        place = placeToSave
                     )
                     if (checklistItems.isNotEmpty()) {
                         checklistRepository.replaceItems(newId, checklistItems)
@@ -424,7 +564,8 @@ class CaptureViewModel(
                         listId = listId,
                         dueAt = dueToSave,
                         isAllDay = state.isAllDay,
-                        repeatRule = ruleToSave
+                        repeatRule = ruleToSave,
+                        place = placeToSave
                     )
                     // Always called on edit, including with an empty list, so
                     // deleting every item actually removes the checklist.

@@ -8,7 +8,9 @@ import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
 import com.stackpointer.lists.completed.ON_TIME
 import com.stackpointer.lists.completed.punctualityLabel
+import com.stackpointer.lists.data.repository.PlaceRepository
 import com.stackpointer.lists.data.repository.ReminderRepository
+import com.stackpointer.lists.places.PlaceTrigger
 import com.stackpointer.lists.recurrence.RRule
 import com.stackpointer.lists.recurrence.rruleSummary
 import kotlinx.coroutines.flow.SharingStarted
@@ -38,6 +40,8 @@ data class ReminderDetailUiState(
     val dueText: String? = null,
     val repeatText: String = "None",
     val repeats: Boolean = false,
+    /** "Arrive at Home · within 200 m", or null when there's no place trigger. */
+    val placeText: String? = null,
     val listName: String = "",
     val listColorArgb: Int = 0,
     val isImportant: Boolean = false,
@@ -52,7 +56,8 @@ class ReminderDetailViewModel(
     private val reminderId: Long,
     private val reminderRepository: ReminderRepository,
     listRepository: ListRepository,
-    private val checklistRepository: ChecklistRepository
+    private val checklistRepository: ChecklistRepository,
+    private val placeRepository: PlaceRepository
 ) : ViewModel() {
 
     private val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
@@ -84,6 +89,10 @@ class ReminderDetailViewModel(
                 },
                 repeatText = rule?.let { rruleSummary(it, anchorDate) } ?: "None",
                 repeats = rule != null,
+                // Read inside the combine rather than as a sixth flow: combine
+                // tops out at five typed sources, and a place changes far less
+                // often than anything else on this screen.
+                placeText = placeSummary(reminder),
                 listName = list?.name ?: "",
                 listColorArgb = list?.colorArgb ?: 0,
                 isImportant = reminder.isImportant,
@@ -148,6 +157,16 @@ class ReminderDetailViewModel(
         }
     }
 
+    private suspend fun placeSummary(
+        reminder: com.stackpointer.lists.data.entity.ReminderEntity
+    ): String? {
+        val trigger = PlaceTrigger.parse(reminder.placeTrigger) ?: return null
+        val place = reminder.placeId?.let { placeRepository.getPlace(it) } ?: return null
+        val verb = if (trigger == PlaceTrigger.ARRIVE) "Arrive at" else "Leave"
+        val radius = if (place.radiusMeters >= 1000) "1 km" else "${place.radiusMeters} m"
+        return "$verb ${place.name} · within $radius"
+    }
+
     /**
      * "12 completed · 4 on time in a row". The streak counts back from the
      * newest completion and stops at the first late one — which is the whole
@@ -184,12 +203,13 @@ class ReminderDetailViewModel(
         private val reminderId: Long,
         private val reminderRepository: ReminderRepository,
         private val listRepository: ListRepository,
-        private val checklistRepository: ChecklistRepository
+        private val checklistRepository: ChecklistRepository,
+        private val placeRepository: PlaceRepository
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             return ReminderDetailViewModel(
-                reminderId, reminderRepository, listRepository, checklistRepository
+                reminderId, reminderRepository, listRepository, checklistRepository, placeRepository
             ) as T
         }
     }

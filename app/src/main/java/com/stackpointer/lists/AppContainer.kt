@@ -6,9 +6,12 @@ import com.stackpointer.lists.data.prefs.OnboardingStore
 import com.stackpointer.lists.data.prefs.SearchHistoryStore
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
+import com.stackpointer.lists.data.repository.PlaceRepository
 import com.stackpointer.lists.data.repository.ReminderRepository
+import com.stackpointer.lists.data.repository.ReminderSyncFanOut
 import com.stackpointer.lists.notifications.AlarmScheduler
 import com.stackpointer.lists.notifications.ReminderAlerts
+import com.stackpointer.lists.places.GeofenceRegistrar
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,13 +30,25 @@ class AppContainer(context: Context) {
 
     val reminderDao = database.reminderDao()
     val completionDao = database.completionDao()
+    val placeDao = database.placeDao()
+    val listDao = database.reminderListDao()
 
     val alarmScheduler = AlarmScheduler(appContext, reminderDao, applicationScope)
 
-    val reminderAlerts = ReminderAlerts(appContext, reminderDao, database.reminderListDao())
+    val reminderAlerts = ReminderAlerts(appContext, reminderDao, listDao)
 
-    val reminderRepository = ReminderRepository(reminderDao, completionDao, alarmScheduler)
-    val listRepository = ListRepository(database.reminderListDao(), alarmScheduler)
+    val geofenceRegistrar = GeofenceRegistrar(appContext, placeDao, applicationScope)
+
+    /**
+     * Every reminder edit invalidates both the alarm schedule and the geofence
+     * registrations, so the repositories are handed one signal that reaches
+     * both rather than two they could forget to call in step.
+     */
+    private val osStateSync = ReminderSyncFanOut(listOf(alarmScheduler, geofenceRegistrar))
+
+    val reminderRepository = ReminderRepository(reminderDao, completionDao, osStateSync)
+    val listRepository = ListRepository(listDao, osStateSync)
+    val placeRepository = PlaceRepository(placeDao, geofenceRegistrar)
     val checklistRepository = ChecklistRepository(database.checklistItemDao())
     val searchHistoryStore = SearchHistoryStore(appContext)
     val onboardingStore = OnboardingStore(appContext)

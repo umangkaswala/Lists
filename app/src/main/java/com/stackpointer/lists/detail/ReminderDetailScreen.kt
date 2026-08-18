@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.RadioButtonUnchecked
+import androidx.compose.material.icons.rounded.Place
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Snooze
@@ -65,7 +66,8 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
             reminderId,
             container.reminderRepository,
             container.listRepository,
-            container.checklistRepository
+            container.checklistRepository,
+            container.placeRepository
         )
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
@@ -165,8 +167,21 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                         label = "Repeat",
                         value = state.repeatText,
                         onClick = onEdit,
-                        showDivider = false
+                        showDivider = state.placeText != null
                     )
+                    // Only shown when there is one: an always-present "Place:
+                    // None" row would put a place trigger in front of every
+                    // user, including the ones who never want one.
+                    state.placeText?.let { place ->
+                        PropertyRow(
+                            icon = Icons.Rounded.Place,
+                            label = "Place",
+                            value = place,
+                            valueColor = MaterialTheme.colorScheme.tertiary,
+                            onClick = onEdit,
+                            showDivider = false
+                        )
+                    }
                 }
             }
 
