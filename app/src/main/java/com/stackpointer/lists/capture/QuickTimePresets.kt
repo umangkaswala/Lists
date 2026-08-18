@@ -1,38 +1,53 @@
 package com.stackpointer.lists.capture
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import com.stackpointer.lists.parser.formatDueChip
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 data class QuickTimePreset(val label: String, val epochMillis: Long)
 
-// Hardcoded for Phase 2. Becomes user-configurable in Settings (Phase 9),
-// which is what will then feed this list instead.
+// The design (S07) shows three outlined chips whose labels state the actual
+// time they set — "In 1 hour" / "Tonight 7 pm" / "Tomorrow 9 am" — rather than
+// vague words like "Later today". A label that names the time is the only way
+// the chips are honest about what they do.
+//
+// Becomes user-configurable in Settings (Phase 9), which is what will then feed
+// this list instead.
+//
+// Deliberately not `remember`ed: these are absolute instants computed from
+// "now", and a sheet left open across the hour would otherwise keep offering
+// an "In 1 hour" that has already been and gone. Three date calculations per
+// recomposition is nothing.
 @Composable
-fun rememberQuickTimePresets(): List<QuickTimePreset> {
-    return remember {
+fun quickTimePresets(): List<QuickTimePreset> {
+    return run {
         val zone = ZoneId.systemDefault()
-        val now = java.time.ZonedDateTime.now(zone)
-        val laterToday = now.plusHours(3)
-        val tonight = if (now.toLocalTime().isBefore(LocalTime.of(19, 0))) {
-            now.toLocalDate().atTime(19, 0).atZone(zone)
+        val now = ZonedDateTime.now(zone)
+
+        val inAnHour = now.plusHours(1).withSecond(0).withNano(0)
+
+        // "Tonight" is only tonight while tonight is still ahead. Past 7pm the
+        // chip would set a time already gone, and an alarm in the past never
+        // fires at all — so it rolls to tomorrow and the label says so.
+        val evening = LocalTime.of(19, 0)
+        val eveningDate = if (now.toLocalTime() < evening) {
+            now.toLocalDate()
         } else {
-            now.plusHours(3)
+            now.toLocalDate().plusDays(1)
         }
+        val eveningLabel = if (eveningDate == now.toLocalDate()) "Tonight 7 pm" else "Tomorrow 7 pm"
         val tomorrowMorning = now.toLocalDate().plusDays(1).atTime(9, 0).atZone(zone)
-        val nextWeek = now.toLocalDate().plusDays(7).atTime(9, 0).atZone(zone)
 
         listOf(
-            QuickTimePreset("Later today", laterToday.toInstant().toEpochMilli()),
-            QuickTimePreset("Tonight", tonight.toInstant().toEpochMilli()),
-            QuickTimePreset("Tomorrow", tomorrowMorning.toInstant().toEpochMilli()),
-            QuickTimePreset("Next week", nextWeek.toInstant().toEpochMilli())
+            QuickTimePreset("In 1 hour", inAnHour.toInstant().toEpochMilli()),
+            QuickTimePreset(eveningLabel, eveningDate.atTime(evening).atZone(zone).toInstant().toEpochMilli()),
+            QuickTimePreset("Tomorrow 9 am", tomorrowMorning.toInstant().toEpochMilli())
         )
     }
 }

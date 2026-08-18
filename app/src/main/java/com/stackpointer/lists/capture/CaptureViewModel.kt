@@ -16,8 +16,10 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 
 enum class CaptureMode { TYPING, WHEN, REPEAT, LIST }
 
@@ -57,6 +59,25 @@ data class CaptureUiState(
 // there's no natural ViewModelStoreOwner to clear a real ViewModel from when
 // the sheet closes — using one here leaked one retained instance per sheet open
 // for the lifetime of the app process.
+/** The time of day a reminder lands on when only a date was chosen. */
+private val DEFAULT_TIME: LocalTime = LocalTime.of(9, 0)
+
+/**
+ * The time of day to invent when the user chose a date but never chose a time.
+ *
+ * [DEFAULT_TIME], unless that has already gone by on the date in question — an
+ * invented time in the past is worse than no time at all, because AlarmPlanner
+ * drops any trigger that has already passed and the reminder then never alerts.
+ */
+private fun defaultTimeOn(date: LocalDate, zone: ZoneId): LocalTime {
+    val now = ZonedDateTime.now(zone)
+    if (date != now.toLocalDate() || now.toLocalTime() < DEFAULT_TIME) return DEFAULT_TIME
+    val nextHour = now.plusHours(1).truncatedTo(ChronoUnit.HOURS)
+    // Late enough in the evening that the next whole hour is tomorrow: keep the
+    // date the user picked and settle for the last minute of it.
+    return if (nextHour.toLocalDate() == now.toLocalDate()) nextHour.toLocalTime() else LocalTime.of(23, 59)
+}
+
 class CaptureViewModel(
     private val target: CaptureTarget,
     private val reminderRepository: ReminderRepository,
@@ -167,14 +188,87 @@ class CaptureViewModel(
         _uiState.value = _uiState.value.copy(mode = modeBeforeRepeat)
     }
 
+    // The due date the All day switch made up on the user's behalf, so that
+    // switching it back off can take that date away again. Cleared as soon as
+    // the user names a date or time themselves, since it's then theirs, not ours.
+    private var allDayInventedDueAt: Long? = null
+
     fun setAllDay(allDay: Boolean) {
         dueOverridden = true
-        _uiState.value = _uiState.value.copy(isAllDay = allDay, parsedFromText = false)
+        val state = _uiState.value
+
+        // "All day" with no date at all is a switch that does nothing visible.
+        // Turning it on therefore means "all day today" unless a date is set.
+        if (allDay && state.dueAt == null) {
+            val invented = LocalDate.now(zone).atTime(DEFAULT_TIME).atZone(zone).toInstant().toEpochMilli()
+            allDayInventedDueAt = invented
+            _uiState.value = state.copy(isAllDay = true, dueAt = invented, parsedFromText = false)
+            return
+        }
+
+        // Switching it back off has to take that invented date with it, or a
+        // stray tap on the switch leaves behind a due date nobody asked for —
+        // one the When sheet gives no way to remove.
+        val dueAt = if (!allDay && state.dueAt == allDayInventedDueAt) null else state.dueAt
+        if (dueAt == null) allDayInventedDueAt = null
+        _uiState.value = state.copy(isAllDay = allDay, dueAt = dueAt, parsedFromText = false)
     }
 
+    /** Sets both halves at once — what the quick-pick chips do. */
     fun setDueAt(epochMillis: Long?) {
         dueOverridden = true
-        _uiState.value = _uiState.value.copy(dueAt = epochMillis, parsedFromText = false)
+        allDayInventedDueAt = null
+        _uiState.value = _uiState.value.copy(
+            dueAt = epochMillis,
+            // Every chip names a specific time, so an all-day flag left over
+            // from the parser would throw that time away: all-day reminders
+            // alert at 09:00, which for "Tonight 7 pm" is a moment already
+            // gone, and a trigger in the past is never scheduled at all.
+            isAllDay = false,
+            parsedFromText = false
+        )
+    }
+
+    /**
+     * Changes the day, keeping whatever time is already set.
+     *
+     * Date and time are edited separately in the When sheet but stored as one
+     * instant, so each setter has to reconstruct the other half rather than
+     * overwrite it — picking a date must not silently reset 7:00 pm to midnight.
+     */
+    fun setDate(date: LocalDate) {
+        dueOverridden = true
+        allDayInventedDueAt = null
+        val state = _uiState.value
+        val time = state.dueAt
+            ?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalTime() }
+            ?: defaultTimeOn(date, zone)
+        _uiState.value = state.copy(
+            dueAt = date.atTime(time).atZone(zone).toInstant().toEpochMilli(),
+            parsedFromText = false
+        )
+    }
+
+    /** Changes the time, keeping the day. See [setDate]. */
+    fun setTime(time: LocalTime) {
+        dueOverridden = true
+        allDayInventedDueAt = null
+        val state = _uiState.value
+        val existingDate = state.dueAt?.let { Instant.ofEpochMilli(it).atZone(zone).toLocalDate() }
+        // With no date chosen yet, a bare time means the next time it's that
+        // time — the same thing a clock alarm does. Anchoring it to today would
+        // hand back an instant already in the past, which never fires.
+        val date = existingDate ?: run {
+            val now = ZonedDateTime.now(zone)
+            if (now.toLocalTime() < time) now.toLocalDate() else now.toLocalDate().plusDays(1)
+        }
+        _uiState.value = state.copy(
+            dueAt = date.atTime(time).atZone(zone).toInstant().toEpochMilli(),
+            // A specific time and "all day" contradict each other; the more
+            // specific of the two wins.
+            isAllDay = false,
+            parsedFromText = false
+        )
     }
 
     fun clearDue() {

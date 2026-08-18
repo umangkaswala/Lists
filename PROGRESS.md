@@ -4,8 +4,9 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phase 5 built, emulator-verified and code-reviewed.
-Awaiting Umang's physical-device pass. Start Phase 6 next.**
+**Current status: Phase 5 built, emulator-verified and code-reviewed, plus the
+When editor's missing date/time pickers (outstanding bug 1) now built and
+verified. Awaiting Umang's physical-device pass. Start Phase 6 next.**
 
 Phase 5's remaining verification needs **Umang's own phone** — real Doze, real
 Samsung battery management, and a reboot with a secure lock screen. See the
@@ -15,41 +16,80 @@ Samsung battery management, and a reboot with a secure lock screen. See the
 
 These are confirmed defects against the design, not ideas. Do them first.
 
-### 1. The When editor has no way to set a date or a time (design S07)
+*(None open right now. Bug 1 below is fixed — kept as a record of what was
+wrong and why it wasn't caught, because the "why" still applies to the
+Phase 1–4 screens that have not been re-checked yet.)*
+
+### 1. The When editor had no way to set a date or a time (design S07) — ✅ FIXED 2026-08-18
 
 **Found by Umang on 2026-08-18, testing the Phase 5 build on his own phone.**
 He opened **When**, looked for a clock, and there wasn't one. His words: *"I
 don't know how do i set the time for the reminder."*
 
-Today the only ways to give a reminder an arbitrary time are the four quick-pick
-chips, or typing the time into the reminder text and letting the parser catch it
-(`in 20 minutes`, `14:35`, `at 7pm`). Neither is discoverable, and a reminder app
-where you can't pick a time is not finished.
+At the time the only ways to give a reminder an arbitrary time were the four
+quick-pick chips, or typing the time into the reminder text and letting the
+parser catch it (`in 20 minutes`, `14:35`, `at 7pm`). Neither is discoverable,
+and a reminder app where you can't pick a time is not finished.
 
-**This is a straight spec deviation, not a design decision.** `S07When.dc.html`
+**This was a straight spec deviation, not a design decision.** `S07When.dc.html`
 specifies, directly under the All day toggle and above the quick chips:
 
 - a **Date** field — label "Date", value e.g. "Tue, 19 Aug"
 - a **Time** field — label "Time", value e.g. "7:00 pm"
 
-Both are 56dp tall, `secondaryContainer`, 16dp corners, sitting side by side in a
-row (Date takes the remaining width, Time is a fixed 140dp), each showing a small
-11sp label above a 16sp semibold value. Tapping them opens the M3 date and time
-pickers. I built the chips and silently dropped both fields.
+Both 56dp tall, `secondaryContainer`, 16dp corners, side by side (Date takes the
+remaining width, Time a fixed 140dp), each an 11sp label above a 16sp semibold
+value. The chips got built and both fields were silently dropped.
 
-**Second, smaller deviation on the same screen:** the design's quick chips are
-**"In 1 hour" / "Tonight 7 pm" / "Tomorrow 9 am"** (three, outlined, showing the
-actual resulting time). Mine are "Later today / Tonight / Tomorrow / Next week"
-(four, no times shown). Fix both together.
+**Second deviation on the same screen:** the design's quick chips are
+**"In 1 hour" / "Tonight 7 pm" / "Tomorrow 9 am"** (three, outlined, naming the
+actual resulting time). Mine were "Later today / Tonight / Tomorrow / Next week"
+(four, no times shown).
 
-**Where the code lives:** `capture/CaptureSheet.kt` (the When sub-editor) and
-`capture/QuickTimePresets.kt`. A working M3 `DatePicker` already exists in
-`repeat/RepeatEditor.kt`'s "On a date" option — copy that pattern, and pair it
-with `TimePicker`. Phase 9 later makes the quick presets configurable in
-Settings, so keep them in one place.
+**What was built to fix it** (`capture/CaptureSheet.kt`,
+`capture/CaptureViewModel.kt`, `capture/QuickTimePresets.kt`):
+
+- The two **Date / Time fields** at the design's sizes and colours, opening the
+  M3 `DatePicker` and `TimePicker`. Both read "Not set" until they hold
+  something. The time picker honours the phone's 12/24-hour setting.
+- Date and time are **edited independently but stored as one instant**, so
+  changing the day keeps 7:15 pm, and changing the time keeps Friday.
+- The **three design chips**, whose labels now name the time they set.
+- The three property rows below (Repeat / Early alert / Alert style) gained the
+  design's leading icons and chevrons; Early alert and Alert style are still
+  stubs, now reading "None" and "Sound + vibrate" as the design does.
+
+**Judgment calls made while fixing it** (all flagged rather than silent, and all
+in service of one rule — *never save a due time that has already passed, because
+`AlarmPlanner` drops any trigger in the past and the reminder then never alerts
+at all, with nothing on screen to say so*):
+
+- Picking a **time with no date yet** means the next time it's that time —
+  today if it's still ahead, otherwise tomorrow. Same as a clock alarm.
+- Picking a **date with no time yet** gets 9:00 am, unless 9:00 has already gone
+  on that date, in which case it gets the next whole hour.
+- **All day** turned on with no date means all day *today*; turning it back off
+  takes that invented date away again.
+- A **quick chip or a picked time clears the All day flag** — an all-day
+  reminder alerts at 09:00, so leaving the flag set would throw the chosen time
+  away.
+- Past 7 pm, the **"Tonight 7 pm" chip becomes "Tomorrow 7 pm"** rather than
+  offering a time that has already gone.
+
+**Verified on the emulator** by driving it as a user would: set 7:15 pm, changed
+the date to Fri 21 Aug and confirmed the time survived, saved, and read the
+scheduled alarm back out of `dumpsys alarm` — `RTC_WAKEUP ... origWhen=2026-08-21
+19:15:00.000 exactAllowReason=permission`, i.e. the exact instant picked. Then
+re-verified each of the four rules above on screen after the code-review fixes.
+
+**`/code-review high` found 5 issues, all fixed before commit:** `setDate`
+inventing a past 9:00 am; quick chips not clearing `isAllDay`; the All day
+switch leaving its invented date behind; the presets frozen by `remember` so a
+long-open sheet offered a stale "In 1 hour"; and the three longer chip labels
+being clipped off-screen in a non-wrapping `Row` at large font scale.
 
 **Why it went unnoticed for three phases:** every check we run is aimed
-elsewhere. `/code-review` looks for correctness bugs, and the code is correct.
+elsewhere. `/code-review` looks for correctness bugs, and the code was correct.
 The Plan agent looks for platform traps. And my own emulator testing drove the
 app *knowing how it works inside* — I typed `Standup 00:16 every weekday` because
 I'd read the parser, so I never once went looking for a clock. I was testing the
@@ -195,7 +235,8 @@ rather than silently deciding it's fine.
 > `S07When.dc.html` explicitly specifies Date and Time fields, so "chips only"
 > was never what the design asked for, and Umang hit the gap immediately the
 > first time he used the app on his own phone. See **"Outstanding bugs"** at the
-> top of this file, which carries the full spec and the fix.
+> top of this file, which carries the full spec and the fix — built and
+> verified on 2026-08-18.
 
 ## Phase 3 — Parser + RRULE engine + Custom Repeat + widget spike — ✅ DONE (2026-08-17)
 
