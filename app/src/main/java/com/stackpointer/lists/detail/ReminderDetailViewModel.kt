@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.stackpointer.lists.data.entity.ChecklistItemEntity
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
+import com.stackpointer.lists.completed.ON_TIME
+import com.stackpointer.lists.completed.punctualityLabel
 import com.stackpointer.lists.data.repository.ReminderRepository
 import com.stackpointer.lists.recurrence.RRule
 import com.stackpointer.lists.recurrence.rruleSummary
@@ -15,8 +17,18 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import java.util.Locale
+
+/** One line of Detail's history card. */
+data class CompletionHistoryItem(
+    val id: Long,
+    val dateText: String,
+    val punctualityText: String?,
+    val wasOnTime: Boolean
+)
 
 data class ReminderDetailUiState(
     val isLoading: Boolean = true,
@@ -30,7 +42,10 @@ data class ReminderDetailUiState(
     val listColorArgb: Int = 0,
     val isImportant: Boolean = false,
     val isCompleted: Boolean = false,
-    val checklist: List<ChecklistItemEntity> = emptyList()
+    val checklist: List<ChecklistItemEntity> = emptyList(),
+    val history: List<CompletionHistoryItem> = emptyList(),
+    val historySummary: String = "",
+    val totalCompletions: Int = 0
 )
 
 class ReminderDetailViewModel(
@@ -41,12 +56,16 @@ class ReminderDetailViewModel(
 ) : ViewModel() {
 
     private val formatter = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+    private val zone: ZoneId = ZoneId.systemDefault()
+    private val historyDateFormat = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.getDefault())
 
     val uiState: StateFlow<ReminderDetailUiState> = combine(
         reminderRepository.observeById(reminderId),
         listRepository.observeLists(),
-        checklistRepository.observeForReminder(reminderId)
-    ) { reminder, lists, checklist ->
+        checklistRepository.observeForReminder(reminderId),
+        reminderRepository.observeCompletionsFor(reminderId, HISTORY_LIMIT),
+        reminderRepository.observeCompletionCountFor(reminderId)
+    ) { reminder, lists, checklist, completions, completionCount ->
         if (reminder == null) {
             ReminderDetailUiState(isLoading = false, found = false)
         } else {
@@ -69,7 +88,24 @@ class ReminderDetailViewModel(
                 listColorArgb = list?.colorArgb ?: 0,
                 isImportant = reminder.isImportant,
                 isCompleted = reminder.isCompleted,
-                checklist = checklist
+                checklist = checklist,
+                history = completions.map { completion ->
+                    val label = punctualityLabel(
+                        dueAt = completion.dueAt,
+                        completedAt = completion.completedAt,
+                        wasAllDay = completion.wasAllDay,
+                        zone = zone
+                    )
+                    CompletionHistoryItem(
+                        id = completion.id,
+                        dateText = Instant.ofEpochMilli(completion.completedAt)
+                            .atZone(zone).toLocalDate().format(historyDateFormat),
+                        punctualityText = label,
+                        wasOnTime = label == ON_TIME
+                    )
+                },
+                historySummary = historySummary(completions.size, completionCount, completions),
+                totalCompletions = completionCount
             )
         }
     }.stateIn(
@@ -112,8 +148,36 @@ class ReminderDetailViewModel(
         }
     }
 
+    /**
+     * "12 completed · 4 on time in a row". The streak counts back from the
+     * newest completion and stops at the first late one — which is the whole
+     * point of a streak, and why it can't be derived from the totals alone.
+     */
+    private fun historySummary(
+        shown: Int,
+        total: Int,
+        completions: List<com.stackpointer.lists.data.entity.CompletionEntity>
+    ): String {
+        if (total == 0) return ""
+        val streak = completions.takeWhile { completion ->
+            punctualityLabel(completion.dueAt, completion.completedAt, completion.wasAllDay, zone) == ON_TIME
+        }.size
+        val completed = if (total == 1) "1 completed" else "$total completed"
+        // A streak as long as the window we loaded might really be longer, so
+        // it isn't claimed as a number the app can't stand behind.
+        return when {
+            streak == 0 -> completed
+            streak >= shown && total > shown -> "$completed · on time every time lately"
+            streak == 1 -> "$completed · last one on time"
+            else -> "$completed · $streak on time in a row"
+        }
+    }
+
     private companion object {
         const val SNOOZE_MINUTES = 30L
+
+        /** Enough rows to show a streak without needing paging of its own. */
+        const val HISTORY_LIMIT = 8
     }
 
     class Factory(

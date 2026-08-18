@@ -72,4 +72,39 @@ interface ReminderDao {
 
     @Query("UPDATE reminders SET deletedAt = :deletedAt WHERE id = :id")
     suspend fun setDeletedAt(id: Long, deletedAt: Long?)
+
+    // ---- Recycle bin -------------------------------------------------------
+
+    /** Newest deletion first, which is also "most days left first". */
+    @Query("SELECT * FROM reminders WHERE deletedAt IS NOT NULL ORDER BY deletedAt DESC")
+    fun observeDeleted(): Flow<List<ReminderEntity>>
+
+    @Query("SELECT COUNT(*) FROM reminders WHERE deletedAt IS NOT NULL")
+    fun observeDeletedCount(): Flow<Int>
+
+    @Query("UPDATE reminders SET deletedAt = :deletedAt WHERE id IN (:ids)")
+    suspend fun setDeletedAtForIds(ids: List<Long>, deletedAt: Long?)
+
+    @Query("DELETE FROM reminders WHERE id IN (:ids)")
+    suspend fun hardDeleteIds(ids: List<Long>)
+
+    /**
+     * The 30-day retention sweep. Rows are matched on their own deletedAt, so a
+     * reminder deleted today survives a sweep that removes one deleted 31 days
+     * ago. Checklist items and completion log rows go with them by foreign-key
+     * cascade.
+     */
+    @Query("DELETE FROM reminders WHERE deletedAt IS NOT NULL AND deletedAt < :cutoff")
+    suspend fun purgeDeletedBefore(cutoff: Long): Int
+
+    // ---- Completed ---------------------------------------------------------
+
+    @Query(
+        "UPDATE reminders SET isCompleted = :completed, completedAt = :completedAt " +
+            "WHERE id IN (:ids)"
+    )
+    suspend fun setCompletedForIds(ids: List<Long>, completed: Boolean, completedAt: Long?)
+
+    @Query("SELECT id FROM reminders WHERE isCompleted = 1 AND deletedAt IS NULL")
+    suspend fun completedIds(): List<Long>
 }

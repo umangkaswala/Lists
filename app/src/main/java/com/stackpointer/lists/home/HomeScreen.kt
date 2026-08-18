@@ -37,11 +37,18 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +70,8 @@ fun HomeScreen(
     onOpenCapture: (CaptureTarget) -> Unit,
     onOpenSearch: () -> Unit,
     onOpenToday: () -> Unit,
+    onOpenCompleted: () -> Unit,
+    onOpenRecycleBin: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val container = currentAppContainer()
@@ -86,7 +95,12 @@ fun HomeScreen(
                 // so that when it renders nothing (the normal case) it leaves no
                 // gap behind — a separate item would always cost 12dp of spacing.
                 Column {
-                    SearchBarRow(onOpenLists = onOpenLists, onOpenSearch = onOpenSearch)
+                    SearchBarRow(
+                        onOpenLists = onOpenLists,
+                        onOpenSearch = onOpenSearch,
+                        onOpenCompleted = onOpenCompleted,
+                        onOpenRecycleBin = onOpenRecycleBin
+                    )
                     AlertPermissionBanner(modifier = Modifier.padding(top = 12.dp))
                 }
             }
@@ -139,7 +153,13 @@ fun HomeScreen(
 }
 
 @Composable
-private fun SearchBarRow(onOpenLists: () -> Unit, onOpenSearch: () -> Unit) {
+private fun SearchBarRow(
+    onOpenLists: () -> Unit,
+    onOpenSearch: () -> Unit,
+    onOpenCompleted: () -> Unit,
+    onOpenRecycleBin: () -> Unit
+) {
+    var menuOpen by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = MaterialTheme.shapes.extraLarge,
@@ -165,8 +185,40 @@ private fun SearchBarRow(onOpenLists: () -> Unit, onOpenSearch: () -> Unit) {
                     .clickable(onClick = onOpenSearch)
                     .wrapContentHeight()
             )
-            IconButton(onClick = onOpenLists) {
-                Icon(Icons.Rounded.List, contentDescription = "Your lists")
+            // The design calls this a "trailing overflow", not a single
+            // button. Completed and the recycle bin have no other way in, and
+            // hanging them off the one menu the spec already puts here beats
+            // inventing a navigation surface that isn't drawn anywhere.
+            Box {
+                IconButton(onClick = { menuOpen = true }, modifier = Modifier.size(40.dp)) {
+                    Icon(Icons.Rounded.MoreVert, contentDescription = "More options")
+                }
+                DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Your lists") },
+                        leadingIcon = { Icon(Icons.Rounded.List, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenLists()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Completed") },
+                        leadingIcon = { Icon(Icons.Rounded.CheckCircle, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenCompleted()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Recycle bin") },
+                        leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenRecycleBin()
+                        }
+                    )
+                }
             }
         }
     }

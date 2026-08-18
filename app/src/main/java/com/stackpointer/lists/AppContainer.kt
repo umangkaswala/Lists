@@ -26,12 +26,13 @@ class AppContainer(context: Context) {
     val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     val reminderDao = database.reminderDao()
+    val completionDao = database.completionDao()
 
     val alarmScheduler = AlarmScheduler(appContext, reminderDao, applicationScope)
 
     val reminderAlerts = ReminderAlerts(appContext, reminderDao, database.reminderListDao())
 
-    val reminderRepository = ReminderRepository(reminderDao, alarmScheduler)
+    val reminderRepository = ReminderRepository(reminderDao, completionDao, alarmScheduler)
     val listRepository = ListRepository(database.reminderListDao(), alarmScheduler)
     val checklistRepository = ChecklistRepository(database.checklistItemDao())
     val searchHistoryStore = SearchHistoryStore(appContext)

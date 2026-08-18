@@ -25,6 +25,8 @@ import com.stackpointer.lists.detail.ReminderDetailScreen
 import com.stackpointer.lists.di.currentAppContainer
 import com.stackpointer.lists.home.HomeScreen
 import com.stackpointer.lists.lists.ListsScreen
+import com.stackpointer.lists.bin.RecycleBinScreen
+import com.stackpointer.lists.completed.CompletedScreen
 import com.stackpointer.lists.onboarding.OnboardingRoute
 import com.stackpointer.lists.search.SearchScreen
 import com.stackpointer.lists.today.TodayScreen
@@ -36,6 +38,8 @@ object ListsDestinations {
     const val LISTS = "lists"
     const val TODAY = "today"
     const val SEARCH = "search"
+    const val COMPLETED = "completed"
+    const val RECYCLE_BIN = "recycle_bin"
     const val REMINDER_DETAIL = "reminder/{reminderId}"
 
     fun reminderDetail(reminderId: Long) = "reminder/$reminderId"
@@ -102,8 +106,19 @@ fun ListsNavHost(
                     onOpenReminder = { id -> navController.navigate(ListsDestinations.reminderDetail(id)) },
                     onOpenCapture = { target -> openCapture(target) },
                     onOpenSearch = { navController.navigate(ListsDestinations.SEARCH) },
-                    onOpenToday = { navController.navigate(ListsDestinations.TODAY) }
+                    onOpenToday = { navController.navigate(ListsDestinations.TODAY) },
+                    onOpenCompleted = { navController.navigate(ListsDestinations.COMPLETED) },
+                    onOpenRecycleBin = { navController.navigate(ListsDestinations.RECYCLE_BIN) }
                 )
+            }
+            composable(ListsDestinations.COMPLETED) {
+                CompletedScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenReminder = { id -> navController.navigate(ListsDestinations.reminderDetail(id)) }
+                )
+            }
+            composable(ListsDestinations.RECYCLE_BIN) {
+                RecycleBinScreen(onBack = { navController.popBackStack() })
             }
             composable(ListsDestinations.LISTS) {
                 ListsScreen(onBack = { navController.popBackStack() })

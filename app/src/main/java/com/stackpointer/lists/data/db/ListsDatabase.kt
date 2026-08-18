@@ -4,11 +4,14 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.stackpointer.lists.data.dao.ChecklistItemDao
+import com.stackpointer.lists.data.dao.CompletionDao
 import com.stackpointer.lists.data.dao.ReminderDao
 import com.stackpointer.lists.data.dao.ReminderListDao
 import com.stackpointer.lists.data.entity.ChecklistItemEntity
+import com.stackpointer.lists.data.entity.CompletionEntity
 import com.stackpointer.lists.data.entity.PlaceEntity
 import com.stackpointer.lists.data.entity.ReminderEntity
 import com.stackpointer.lists.data.entity.ReminderListEntity
@@ -24,15 +27,17 @@ import java.util.concurrent.atomic.AtomicBoolean
         ReminderEntity::class,
         ReminderListEntity::class,
         ChecklistItemEntity::class,
+        CompletionEntity::class,
         PlaceEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class ListsDatabase : RoomDatabase() {
     abstract fun reminderDao(): ReminderDao
     abstract fun reminderListDao(): ReminderListDao
     abstract fun checklistItemDao(): ChecklistItemDao
+    abstract fun completionDao(): CompletionDao
 
     companion object {
         @Volatile
@@ -50,11 +55,53 @@ abstract class ListsDatabase : RoomDatabase() {
                 ListsDatabase::class.java,
                 "lists.db"
             )
-                // Pre-launch app under active development: a schema bump just
-                // wipes local sample data rather than needing a real migration.
+                // Real migrations where one exists. The destructive fallback
+                // below stays as the net for any *earlier* schema bump that
+                // never got one -- it only fires when no path is registered.
+                .addMigrations(MIGRATION_2_3)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .addCallback(SeedCallback(context))
                 .build()
+        }
+
+        /**
+         * Adds the completion log (see CompletionEntity). Written by hand
+         * rather than left to the destructive fallback because by this point
+         * the app is on a real phone with real reminders on it -- wiping them
+         * to add a history table would be a poor trade.
+         *
+         * Already-completed reminders are backfilled into it. Their dueAt is
+         * still the date they were measured against -- only *repeating*
+         * reminders have their dueAt rolled forward, and a repeating reminder
+         * is never isCompleted until its series ends -- so the punctuality
+         * these rows produce is real, not invented.
+         *
+         * The backfill also keeps two screens honest about each other: without
+         * it "Delete all completed" would bin reminders the Completed list had
+         * never shown, because that list is built from this table.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `completions` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`reminderId` INTEGER NOT NULL, " +
+                        "`completedAt` INTEGER NOT NULL, " +
+                        "`dueAt` INTEGER, " +
+                        "`wasAllDay` INTEGER NOT NULL, " +
+                        "`nextDueAt` INTEGER, " +
+                        "FOREIGN KEY(`reminderId`) REFERENCES `reminders`(`id`) " +
+                        "ON UPDATE NO ACTION ON DELETE CASCADE)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_completions_reminderId` ON `completions` (`reminderId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_completions_completedAt` ON `completions` (`completedAt`)")
+                db.execSQL(
+                    "INSERT INTO `completions` " +
+                        "(`reminderId`, `completedAt`, `dueAt`, `wasAllDay`, `nextDueAt`) " +
+                        "SELECT `id`, `completedAt`, `dueAt`, `isAllDay`, `dueAt` FROM `reminders` " +
+                        "WHERE `isCompleted` = 1 AND `completedAt` IS NOT NULL"
+                )
+            }
         }
     }
 }

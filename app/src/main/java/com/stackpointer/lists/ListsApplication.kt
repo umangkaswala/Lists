@@ -2,6 +2,7 @@ package com.stackpointer.lists
 
 import android.app.Application
 import com.stackpointer.lists.notifications.NotificationChannels
+import kotlinx.coroutines.launch
 
 class ListsApplication : Application() {
     lateinit var container: AppContainer
@@ -18,5 +19,13 @@ class ListsApplication : Application() {
         // no broadcasts at all until the user next opens it, so boot handling
         // alone would leave its alarms gone.
         container.alarmScheduler.requestSync()
+
+        // Recycle-bin retention. Opening the app is a good enough trigger: the
+        // bin is only ever *seen* from inside the app, so a reminder can't look
+        // overdue for deletion before this has had a chance to run. A
+        // WorkManager job would buy nothing but a second thing to get wrong.
+        container.applicationScope.launch {
+            container.reminderRepository.purgeExpiredBin()
+        }
     }
 }

@@ -245,24 +245,84 @@ fun ReminderDetailScreen(reminderId: Long, onBack: () -> Unit, onEdit: () -> Uni
                 }
             }
 
-            Surface(
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                shape = RoundedCornerShape(24.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text(text = "History", style = MaterialTheme.typography.labelLarge)
-                    Text(
-                        text = if (state.repeats) {
-                            "Completing this moves it to the next occurrence. " +
-                                "Streaks arrive with the Completed screen in a later phase."
+            HistoryCard(state)
+        }
+    }
+}
+
+/**
+ * The design's history card: "real evidence the app is working". It stays on
+ * screen even with nothing in it, because an empty card that explains what will
+ * appear reads better than a card that materialises out of nowhere the first
+ * time something is completed.
+ */
+@Composable
+private fun HistoryCard(state: ReminderDetailUiState) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(text = "History", style = MaterialTheme.typography.labelLarge)
+            if (state.history.isEmpty()) {
+                Text(
+                    text = if (state.repeats) {
+                        "Complete this once and every occurrence you finish will be listed here."
+                    } else {
+                        "Nothing completed yet."
+                    },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                return@Column
+            }
+            Text(
+                text = state.historySummary,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(12.dp))
+            state.history.forEach { item ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.CheckCircle,
+                        contentDescription = null,
+                        // Late completions are still completions. Tinting them
+                        // error would turn a history card into a scolding.
+                        tint = if (item.wasOnTime) {
+                            MaterialTheme.colorScheme.primary
                         } else {
-                            "This reminder doesn't repeat yet, so there's no streak to show."
+                            MaterialTheme.colorScheme.onSurfaceVariant
                         },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        modifier = Modifier.size(18.dp)
                     )
+                    Spacer(Modifier.width(12.dp))
+                    Text(
+                        text = item.dateText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (item.punctualityText != null) {
+                        Text(
+                            text = item.punctualityText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
+            }
+            if (state.totalCompletions > state.history.size) {
+                Text(
+                    text = "Showing the most recent ${state.history.size} of " +
+                        "${state.totalCompletions}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
         }
     }

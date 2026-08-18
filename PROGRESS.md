@@ -4,13 +4,15 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phase 5 built, emulator-verified and code-reviewed, plus the
-When editor's missing date/time pickers (outstanding bug 1) now built and
-verified. Awaiting Umang's physical-device pass. Start Phase 6 next.**
+**Current status: Phase 6 built, emulator-verified and code-reviewed. Umang has
+signed off on the Phase 5 build on his own phone ("everything is working good").
+Start Phase 7 next — Places & geofencing, which needs the Plan agent first per
+CLAUDE.md, and needs his physical phone to verify.**
 
-Phase 5's remaining verification needs **Umang's own phone** — real Doze, real
-Samsung battery management, and a reboot with a secure lock screen. See the
-"Still needs the phone" list in the Phase 5 entry below.
+Phase 5's phone-only checks — real Doze, Samsung battery management, a reboot
+with a secure lock screen, real sound and lock-screen presentation — were run by
+Umang on 2026-08-18 and came back clean. The "Still needs the phone" list in the
+Phase 5 entry below is kept as the script to re-run after any alarm change.
 
 ## 🔴 Outstanding bugs — fix these before starting a new phase
 
@@ -423,7 +425,7 @@ terms, but the seams cost more — of the six review findings, four were in the
 boundary between my data layer and the agents' screens. Fetching the design
 specs for them up front would have removed most of the rework.
 
-## Phase 5 — Notifications, exact alarms, onboarding permissions — ✅ BUILT (2026-08-18)
+## Phase 5 — Notifications, exact alarms, onboarding permissions — ✅ DONE (2026-08-18, confirmed on Umang's phone)
 
 Written in the main session rather than split across subagents: this phase is
 one tightly-coupled reliability surface, and Phase 4's lesson was that the
@@ -549,13 +551,170 @@ grouping is computed when the reminder data changes, not on a clock tick, so
 leaving the app open past a due time doesn't re-group it until something else
 changes. Phase 1 behaviour, unrelated to this phase's work.
 
-## Phases 6–12 — ⬜ NOT STARTED
+## Phase 6 — Completed screen, Recycle bin, history — ✅ DONE (2026-08-18)
+
+Design screens **S13 Completed** and **S14 Recycle bin + selection mode**, plus
+the History card on **S11 Detail** that had been a placeholder since Phase 1.
+
+### The one thing that shaped the whole phase: a completion log
+
+Completing a *repeating* reminder never sets `isCompleted` — it rolls `dueAt`
+forward to the next occurrence. So the reminder row keeps **no trace** of the
+occurrence that was just finished. Built on the reminder row alone, the
+Completed screen could never show a repeating reminder, "on time / 3 min late"
+would have been measured against the *next* due date rather than the one that
+was met, and Detail's streak card would have had nothing to count.
+
+So Phase 6 added a **`completions` table** (`data/entity/CompletionEntity.kt`):
+one row per tick-off, holding when it was done, the due instant it was measured
+against, whether that occurrence was all-day, and what `dueAt` became
+afterwards. Everything on the Completed screen, the chart, and Detail's history
+is read from it.
+
+**Schema version 2 → 3 with a real hand-written migration**, not the destructive
+fallback. By this point the app is on Umang's actual phone with his actual
+reminders on it, and wiping them to add a history table would have been a poor
+trade. The migration also **backfills** already-completed reminders into the
+log — their `dueAt` is still the date they were measured against, so the
+punctuality those rows produce is real, not invented.
+
+**The migration was tested by actually performing it**, not by reading it:
+stashed the phase, built the v2-schema APK, wiped the emulator, seeded and
+completed reminders under v2, then installed the v3 build over the top. Data
+survived and the backfilled completions appeared on the Completed screen. Done
+twice, because the DDL changed after the code review.
+
+### What was built
+
+**Completed (`completed/`, design S13)**
+- Seven-day bar chart, card corner 24, bars corner 8 `primaryContainer` with
+  today in `primary`. Purely descriptive — no goal line, no streak pressure, as
+  the spec asks. Days with nothing on them keep a visible sliver, because an
+  absent bar and a zero bar look identical and one of those reads as "broken".
+- Rows grouped **Today / Last 7 days / by month**, paged 50 at a time behind a
+  "Show older" button.
+- Today's rows carry both clock times ("Due 7:00 am · done 7:12 am"); older ones
+  carry the date and how close it was ("Sat, 15 Aug · on time", "1 min late").
+- Trailing **undo** puts the reminder back; for a repeating one it restores that
+  occurrence only, exactly as the spec words it.
+- Overflow: **Delete all completed** behind a confirm dialog.
+
+**Recycle bin (`bin/`, design S14)**
+- 30-day retention notice, and every row states its own countdown ("Deleted 5
+  days ago · 25 days left") rather than only the policy.
+- Multi-select: selected rows switch to `secondaryContainer` with a filled
+  checkbox, top bar becomes close / "N selected" / select all, and an 80dp
+  bottom bar offers **Restore** (filled primary) and **Delete now** (outlined,
+  error label) behind a confirm dialog.
+- Overflow: **Empty recycle bin**.
+- **30-day auto-purge** runs on every app start. That's enough: the bin is only
+  ever *seen* from inside the app, so nothing can look overdue for deletion
+  before the sweep has had a chance to run, and a WorkManager job would only
+  have been a second thing to get wrong.
+
+**Selection chrome (`ui/selection/SelectionBars.kt`)** is shared, not copied.
+S14 says "the same selection mode is reachable from any list", and two lookalike
+implementations would drift apart the first time either changed. Completed uses
+it too, via the `checklist_rtl` icon in its top bar — see the judgment calls
+below.
+
+**Detail's History card** now shows the real thing: "12 completed · 4 on time in
+a row" plus the last 8 completions with their dates and punctuality. Late
+completions are tinted `onSurfaceVariant`, not error — they're still
+completions, and tinting them red turns a history card into a scolding.
+
+**Home's search bar** gained the **trailing overflow** the S02 spec always
+called for (it had been a single "Your lists" button). Completed and the recycle
+bin have no other way in, and hanging them off the menu the spec already puts
+there beat inventing a navigation surface that isn't drawn anywhere.
+
+### Judgment calls, flagged rather than silent
+
+- **"Delete all completed" does two different things, because the screen shows
+  two different things.** A finished reminder moves to the recycle bin. A
+  repeating reminder is still running and is never `isCompleted`, so it keeps
+  going and only loses its history rows. Binning a live series behind that menu
+  item would have thrown away a reminder the user still expects to fire. The
+  dialog says both halves out loud.
+- **Delete goes to the bin, never straight to permanent.** Everywhere else in
+  this app Delete means "recoverable for 30 days", and making one path permanent
+  behind a single dialog would be a nasty surprise. Only the bin's own "Delete
+  now" is permanent, and it says so.
+- **The subtitle reads "311 completed", not the design's "311 reminders".** It
+  counts completions, and one daily reminder ticked off all month is 30 of them,
+  not 30 reminders. Accuracy won over matching the mockup's word.
+- **Selection mode on Completed is an inference, not a spec.** S13 draws a
+  `checklist_rtl` icon in its top bar but the spec text never says what it does;
+  S14 says the same selection mode is reachable from any list. Making it select
+  mode (with Undo / Delete) is the only reading that makes the icon real.
+- **The bin's retention notice doesn't repeat the design's copy.** The mockup
+  says deleted reminders are "removed from every signed-in device"; there are no
+  signed-in devices in v1, so it says what actually happens instead of promising
+  a sync that doesn't exist.
+- **Undoing an older completion doesn't move the due date.** Only a reminder's
+  most recent completion owns its current due date; moving it back from an older
+  entry would step over occurrences still recorded as done and re-alert for all
+  of them.
+
+### Verified on the emulator
+
+Driven as a user would, not just compiled: completed reminders and watched them
+appear on Completed with the right due/done times; undid one and watched it
+return to Home; selected one and binned it; restored it from the bin and
+confirmed it came back **with its history intact**; completed the repeating
+"Bins out", saw the occurrence logged while the reminder rolled to Aug 25, then
+undid it and watched the due date go back to Aug 18; opened Detail and read the
+history card ("1 completed · Tue, 18 Aug · 13 hours late" for a reminder due
+1:07 am and ticked at 2:44 pm — arithmetic checked by hand); ran "Delete all
+completed" and confirmed the screen emptied, two reminders went to the bin, and
+the repeating series survived.
+
+**The 30-day purge was tested for real.** The emulator is a production image, so
+its clock can't be moved; instead the retention constant was temporarily set to
+0, the app relaunched, and the bin confirmed empty — then the constant was put
+back to 30 and rebuilt.
+
+### `/code-review high` found 5 issues, all fixed before commit
+
+1. **"Delete all completed" contradicted its own dialog** — it matched
+   `isCompleted = 1`, but the screen reads the `completions` table, so a list
+   full of repeating occurrences would report "Nothing to delete" and stay put.
+2. **Undo could silently discard a due-date edit.** Complete a repeating
+   reminder, edit its next date, then undo, and the edit was overwritten. Fixed
+   by recording `nextDueAt` on the log row and only restoring the old date when
+   the reminder's current one still matches it.
+3. **The selection bar's Delete binned a whole repeating series** with no
+   confirmation and no undo, unlike the bin's own delete. Now behind a dialog
+   that names the count and says outright when a repeating reminder is included.
+4. **The undo watermark was measured two different ways** — taken by
+   `completedAt`, applied by `id >`. A device clock stepping backwards between
+   two completions made them disagree, and undo would delete an entry it never
+   created. Now taken by `MAX(id)`.
+5. **"311 reminders" counted completions.** See the subtitle note above.
+
+A copy bug found while re-verifying the fixes on screen — "1 reminder … where
+*they* can be restored" — was fixed too.
+
+### Known limitations
+
+- **A repeating reminder still can't be finished for good** from the Completed
+  screen; it only ever rolls forward. Ending a series is the Repeat editor's
+  UNTIL/COUNT, which already exists.
+- **Completions before the upgrade have no `nextDueAt`**, so undoing one of
+  those backfilled entries won't restore its due date. Correct: the app can't
+  know what the date was before it started recording.
+- **The Completed list has no swipe actions.** The design doesn't draw any, and
+  the trailing undo glyph covers the one thing a row needs to do.
+
+## Phases 7–12 — ⬜ NOT STARTED
 
 See PLAN.md for full descriptions of each.
 
 ## Open product/technical TODOs carried from PLAN.md
 
-- Recycle-bin retention length: defaulted to 30 days, not user-specified.
+- Recycle-bin retention length: defaulted to 30 days, not user-specified. Now
+  a real constant (`BIN_RETENTION_DAYS`) that the bin screen's own copy reads
+  from, so changing it changes what the app says.
 - Real app icon: still a placeholder.
 - Voice recognition privacy disclosure wording: needed by Phase 8/9, not
   written yet.
