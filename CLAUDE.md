@@ -27,6 +27,9 @@ trade-off decisions rather than assuming.
 1. **Start of session**: read PROGRESS.md to find the current phase, then
    read that phase's entry in PLAN.md, then continue the work. Don't ask the
    user to re-describe the project — it's all in these files.
+   **PROGRESS.md's "🔴 Outstanding bugs" section comes before any new phase** —
+   those are confirmed defects the user has already run into, and shipping more
+   features on top of them is the wrong order of work.
 2. **Implement** the phase per its PLAN.md description.
 3. **Self-verify on the emulator** before claiming it's done — install,
    launch, tap through it, screenshot (see "Self-verifying a phase" below).

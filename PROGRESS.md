@@ -11,6 +11,54 @@ Phase 5's remaining verification needs **Umang's own phone** — real Doze, real
 Samsung battery management, and a reboot with a secure lock screen. See the
 "Still needs the phone" list in the Phase 5 entry below.
 
+## 🔴 Outstanding bugs — fix these before starting a new phase
+
+These are confirmed defects against the design, not ideas. Do them first.
+
+### 1. The When editor has no way to set a date or a time (design S07)
+
+**Found by Umang on 2026-08-18, testing the Phase 5 build on his own phone.**
+He opened **When**, looked for a clock, and there wasn't one. His words: *"I
+don't know how do i set the time for the reminder."*
+
+Today the only ways to give a reminder an arbitrary time are the four quick-pick
+chips, or typing the time into the reminder text and letting the parser catch it
+(`in 20 minutes`, `14:35`, `at 7pm`). Neither is discoverable, and a reminder app
+where you can't pick a time is not finished.
+
+**This is a straight spec deviation, not a design decision.** `S07When.dc.html`
+specifies, directly under the All day toggle and above the quick chips:
+
+- a **Date** field — label "Date", value e.g. "Tue, 19 Aug"
+- a **Time** field — label "Time", value e.g. "7:00 pm"
+
+Both are 56dp tall, `secondaryContainer`, 16dp corners, sitting side by side in a
+row (Date takes the remaining width, Time is a fixed 140dp), each showing a small
+11sp label above a 16sp semibold value. Tapping them opens the M3 date and time
+pickers. I built the chips and silently dropped both fields.
+
+**Second, smaller deviation on the same screen:** the design's quick chips are
+**"In 1 hour" / "Tonight 7 pm" / "Tomorrow 9 am"** (three, outlined, showing the
+actual resulting time). Mine are "Later today / Tonight / Tomorrow / Next week"
+(four, no times shown). Fix both together.
+
+**Where the code lives:** `capture/CaptureSheet.kt` (the When sub-editor) and
+`capture/QuickTimePresets.kt`. A working M3 `DatePicker` already exists in
+`repeat/RepeatEditor.kt`'s "On a date" option — copy that pattern, and pair it
+with `TimePicker`. Phase 9 later makes the quick presets configurable in
+Settings, so keep them in one place.
+
+**Why it went unnoticed for three phases:** every check we run is aimed
+elsewhere. `/code-review` looks for correctness bugs, and the code is correct.
+The Plan agent looks for platform traps. And my own emulator testing drove the
+app *knowing how it works inside* — I typed `Standup 00:16 every weekday` because
+I'd read the parser, so I never once went looking for a clock. I was testing the
+implementation against itself.
+
+**Also still to do:** re-check the Phase 1–4 screens against their `.dc.html`
+specs, since the same blind spot applied to all of them and there may be more
+deviations like this one.
+
 **Process note (2026-08-17):** from Phase 2 onward, every phase gets a
 `/code-review` pass on the diff after self-verification and before
 committing — see CLAUDE.md's "Per-phase workflow" section. Phases 0 and 1
@@ -142,6 +190,12 @@ could reasonably be read either way; I read it as "chips only" to keep this
 phase's scope contained, but a real date/time picker may be worth pulling
 forward if presets feel too limiting in practice. Flagging for the user
 rather than silently deciding it's fine.
+
+> **Update (2026-08-18): this was not a defensible reading — it's a bug.**
+> `S07When.dc.html` explicitly specifies Date and Time fields, so "chips only"
+> was never what the design asked for, and Umang hit the gap immediately the
+> first time he used the app on his own phone. See **"Outstanding bugs"** at the
+> top of this file, which carries the full spec and the fix.
 
 ## Phase 3 — Parser + RRULE engine + Custom Repeat + widget spike — ✅ DONE (2026-08-17)
 
