@@ -38,11 +38,11 @@ class AttachmentRepository(
     fun observeForReminder(reminderId: Long): Flow<List<AttachmentEntity>> =
         attachmentDao.observeForReminder(reminderId)
 
-    /** Absolute path for display. Attachments are private to the app. */
     /** Reminder ids with at least one photo, for Search's Photos filter. */
     fun observeReminderIdsWithPhotos(): Flow<List<Long>> =
         attachmentDao.observeReminderIdsWithPhotos()
 
+    /** Absolute path for display. Attachments are private to the app. */
     fun fileFor(attachment: AttachmentEntity): File = File(directory, attachment.fileName)
 
     fun fileFor(fileName: String): File = File(directory, fileName)

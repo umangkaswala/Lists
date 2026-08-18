@@ -161,7 +161,7 @@ fun ReminderDetailScreen(
                     onShare = {
                         if (!shareReminder(context, state)) {
                             scope.launch {
-                                snackbarHostState.showSnackbar("Nothing on this phone can share text")
+                                snackbarHostState.showSnackbar("Couldn't open the share sheet")
                             }
                         }
                     },
@@ -439,8 +439,10 @@ private fun shareReminder(context: Context, state: ReminderDetailUiState): Boole
         putExtra(Intent.EXTRA_TEXT, lines.joinToString(System.lineSeparator()))
     }
     // A chooser rather than a bare ACTION_SEND: without one the system may pick
-    // a default silently. Guarded because a device with nothing to handle it
-    // would otherwise crash the app on a tap that should just say "no".
+    // a default silently. The chooser itself always resolves — a phone with
+    // nothing to handle text says so in its own UI, so this guard is only for
+    // the genuinely broken case (an OEM build with no chooser at all), not a
+    // way to detect "no share apps".
     return runCatching {
         context.startActivity(Intent.createChooser(send, "Share reminder"))
     }.isSuccess

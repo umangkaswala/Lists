@@ -100,7 +100,9 @@ fun ListsScreen(onBack: () -> Unit) {
             items(localOrder, key = { it.id }) { list ->
                 DraggableListRow(
                     list = list,
-                    openCount = openCounts[list.id] ?: 0,
+                    // Null while the counts are still loading; 0 only once we
+                    // actually know the list is empty.
+                    openCount = openCounts?.let { it[list.id] ?: 0 },
                     isDragging = draggingId == list.id,
                     onDragStart = { draggingId = list.id },
                     onDragEnd = {
@@ -190,7 +192,7 @@ fun ListsScreen(onBack: () -> Unit) {
 @Composable
 private fun DraggableListRow(
     list: ReminderListEntity,
-    openCount: Int,
+    openCount: Int?,
     isDragging: Boolean,
     onDragStart: () -> Unit,
     onDragEnd: () -> Unit,
@@ -249,6 +251,7 @@ private fun DraggableListRow(
                     text = listOfNotNull(
                         "Default list".takeIf { list.isDefault },
                         when (openCount) {
+                            null -> null
                             0 -> "Nothing to do"
                             1 -> "1 reminder"
                             else -> "$openCount reminders"

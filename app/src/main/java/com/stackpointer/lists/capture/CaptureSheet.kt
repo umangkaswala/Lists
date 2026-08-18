@@ -64,7 +64,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
@@ -410,7 +410,11 @@ private fun ChecklistSection(
     onAdd: () -> Unit,
     onMove: (Int, Int) -> Boolean
 ) {
-    val rowHeightPx = with(LocalDensity.current) { 44.dp.toPx() }
+    // Measured from a real row rather than assumed. A hard-coded 44.dp was
+    // wrong: IconButton applies a 48.dp minimum touch target, so every step of
+    // a drag under-counted by ~8% and the row drifted behind the finger the
+    // further it travelled.
+    var rowHeightPx by remember { mutableFloatStateOf(0f) }
     // Which item the finger is currently carrying. Hoisted out of the rows
     // because the dragged item changes index as it moves, while the gesture
     // stays with the slot it started in.
@@ -430,7 +434,12 @@ private fun ChecklistSection(
                     focusRequester.requestFocus()
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onGloballyPositioned { rowHeightPx = it.size.height.toFloat() }
+            ) {
                 IconButton(onClick = { onToggle(index) }) {
                     Icon(
                         imageVector = if (item.isCompleted) {
@@ -462,14 +471,22 @@ private fun ChecklistSection(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                     keyboardActions = KeyboardActions(
                         onNext = {
-                            onAdd()
-                            // The view model refuses to stack blank rows, so
-                            // Enter on a row while a blank one already exists
-                            // lands on that one rather than adding a second.
-                            focusTarget = if (items.lastOrNull()?.text.isNullOrBlank()) {
-                                items.lastIndex
+                            if (index < items.lastIndex) {
+                                // Mid-list: Next is ordinary field navigation.
+                                // Appending here would bury a blank row at the
+                                // bottom every time someone tabbed through an
+                                // existing list to fix a typo.
+                                focusTarget = index + 1
                             } else {
-                                items.size
+                                onAdd()
+                                // The view model refuses to stack blank rows, so
+                                // Enter on a row while a blank one already exists
+                                // lands on that one rather than adding a second.
+                                focusTarget = if (items.lastOrNull()?.text.isNullOrBlank()) {
+                                    items.lastIndex
+                                } else {
+                                    items.size
+                                }
                             }
                         }
                     ),
@@ -497,12 +514,13 @@ private fun ChecklistSection(
                 // reorder. Long-press rather than a plain drag so the gesture
                 // can't be confused with the sheet's own drag-to-dismiss.
                 var accumulated by remember { mutableFloatStateOf(0f) }
-                Icon(
-                    imageVector = Icons.Rounded.DragHandle,
-                    contentDescription = "Reorder item",
-                    tint = MaterialTheme.colorScheme.outline,
+                // The 20.dp glyph sits in a 48.dp target. Undersized, it was a
+                // finger's width from the Remove button — and the cost of
+                // missing was deleting the item you meant to move.
+                Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(20.dp)
+                        .size(48.dp)
                         .pointerInput(index) {
                             detectDragGesturesAfterLongPress(
                                 onDragStart = { accumulated = 0f; draggingIndex = index },
@@ -516,7 +534,7 @@ private fun ChecklistSection(
                                     // in one callback, and firing once per
                                     // callback left the row trailing behind the
                                     // finger by however much was discarded.
-                                    while (kotlin.math.abs(accumulated) >= rowHeightPx) {
+                                    while (rowHeightPx > 0f && kotlin.math.abs(accumulated) >= rowHeightPx) {
                                         val from = draggingIndex
                                         if (from == -1) break
                                         val step = if (accumulated > 0) 1 else -1
@@ -536,7 +554,14 @@ private fun ChecklistSection(
                                 }
                             )
                         }
-                )
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DragHandle,
+                        contentDescription = "Reorder item",
+                        tint = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
         }
 

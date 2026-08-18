@@ -26,15 +26,20 @@ class ListsViewModel(
     /**
      * Open reminders per list. Design S15: "Support line carries the meaningful
      * state" — the row used to read a flat "List", which says nothing at all.
+     *
+     * Null until the first database emission, and deliberately not an empty
+     * map: an empty map reads as "every list has nothing in it", so a full
+     * app would flash "Nothing to do" under every name on the way in. The
+     * screen shows no count at all while this is null.
      */
-    val openCounts: StateFlow<Map<Long, Int>> = reminderRepository.observeActive()
+    val openCounts: StateFlow<Map<Long, Int>?> = reminderRepository.observeActive()
         .map { reminders ->
             reminders.filterNot { it.isCompleted }.groupingBy { it.listId }.eachCount()
         }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyMap()
+            initialValue = null
         )
 
     fun createList(name: String, colorArgb: Int) {

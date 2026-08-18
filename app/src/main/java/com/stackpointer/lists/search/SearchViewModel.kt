@@ -29,9 +29,8 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
-/** The four filter chips shown under the search field. Photos has no data behind it yet
- * (that's Phase 8) so it deliberately isn't a member of this enum — tapping it is handled
- * as a "coming later" message entirely in the screen, without touching filter state. */
+/** The four filter chips shown under the search field. All four filter for real;
+ * [PHOTOS] matches against the ids the attachment table has rows for. */
 enum class SearchFilter { OPEN, COMPLETED, CHECKLISTS, PHOTOS }
 
 /** How a result matched the query, used to decide what context line to show under its title. */

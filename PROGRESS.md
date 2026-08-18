@@ -1258,21 +1258,70 @@ Every one was driven as a user would, not just compiled:
    Caught by asking "what else empties `sections`?" before believing the green
    build.
 
-### ⚠️ The `/code-review` pass did NOT run — outstanding
+### `/code-review high` — ran late, found 8, seven fixed
 
 CLAUDE.md makes `/code-review` step 4 of every phase, before committing. It was
-attempted **seven times** across this session and every attempt came back
-`API Error: 529 Overloaded` — a service outage, not a repo problem. Rather than
-pretend the step happened, it is recorded here as owed:
+attempted **nine times** while the audit was being built and every attempt came
+back `API Error: 529 Overloaded` — a service outage, not a repo problem. The
+audit was therefore committed (`b551ed9`) with the step recorded as owed rather
+than quietly skipped. The service recovered the next session and it ran on
+`b551ed9`'s diff. It found **eight issues; all eight were real**, which is the
+argument for not treating a careful self-review as a substitute.
 
-**Run `/code-review high` on this commit's diff when the service is back**, and
-fix or explain anything it finds. The self-review above stood in for it and found
-three real problems, which is a decent showing but not a substitute — on Phases
-5–8 the review consistently found things I had missed, including two that made a
-whole feature dead.
+1. **The Lists screen had the same "zeros as fact" bug this very commit fixed on
+   Home.** `openCounts` started as an empty map, and an empty map does not mean
+   "no data yet", it means *every list has nothing in it* — so a full app read
+   "Nothing to do" under every list name on the way in. Fixed the same way Home
+   was, and the fact that I fixed one and shipped the other in a single commit is
+   the useful lesson: a bug found in one place is worth grepping for in the rest.
+2. **Enter on a middle checklist row appended a blank item at the bottom** and
+   jumped there, instead of moving to the next existing row. Keyboard navigation
+   through an existing list was impossible, and tabbing through a five-item list
+   to fix a typo would have left five blank rows behind it. Enter now only
+   *creates* on the last row; everywhere else it moves.
+3. **The drag handle was a bare 20.dp icon** — well under the 48.dp minimum
+   touch target, and sitting directly beside a full-size Remove button. The cost
+   of missing was deleting the item you meant to move. Now a 20.dp glyph inside a
+   48.dp target.
+4. **The drag step distance was hard-coded to 44.dp** while the real row is
+   ~46.dp, because `IconButton` enforces its own minimum height. Every step
+   under-counted by ~4%, so the further a row travelled the further it drifted
+   from the finger. It now measures a real row with `onGloballyPositioned`
+   instead of assuming.
+5. **Detail's share error was unreachable and misleading.** `createChooser`
+   always resolves, so "Nothing on this phone can share text" could never fire
+   for the reason it claimed — and any *other* failure would have been reported
+   as that. Message and comment now say what the guard actually does.
+6. **`SearchFilter`'s doc comment claimed `PHOTOS` "deliberately isn't a member
+   of this enum"** — directly above the line adding `PHOTOS` to the enum.
+7. **A new function was pasted between `fileFor`'s KDoc and `fileFor`**, so the
+   doc described the wrong declaration.
+
+**The eighth was not fixed, because it is a product decision, not a defect** —
+see "needs Umang's call" below.
+
+**Re-verified on the emulator after the fixes** (not just rebuilt): Enter on the
+first of three rows moved to row two and added nothing; dragging still reorders
+and now works from the edge of the target that used to be dead space; a 2.5-row
+drag moves exactly two rows in *both* directions and round-trips. That last check
+matters — an earlier test at exactly 2.0 rows moved 2 down but 1 up and looked
+like a directional bug, when it was the test sitting precisely on the rounding
+boundary. The reordered list survived a save, reopened from Detail in the right
+order, and shared in that order too. 98 unit tests pass; no crash in logcat.
 
 ### Deliberately NOT fixed — these need Umang's call
 
+- **Editing one property from Detail is still a draft, not an edit** — the
+  eighth code-review finding. Tapping Detail's "List" row opens the picker,
+  picking a list returns to the typing view, and the change is only kept if the
+  send button is pressed; swiping the sheet away discards it silently. That is
+  exactly how the sheet has always behaved for every field, so this is not a
+  regression — but the *mental model* is different. "Edit" invites a draft;
+  tapping a single property row reads as "set this to that", and the design says
+  the row "opens that editor directly". **Question for Umang: should finishing a
+  property-row edit save and close on its own?** Making it do so is a small
+  change; leaving it consistent with the rest of the sheet is also defensible,
+  which is why it is here rather than done.
 - **Today's `filter_list` and overflow buttons are still dead.** S04 *draws*
   both but the spec text never says what either does. Guessing is how you end up
   with a filter nobody wants; the Completed screen's select-mode icon was already
