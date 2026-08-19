@@ -12,3 +12,19 @@ data class ReminderListEntity(
     val isDefault: Boolean = false,
     val createdAt: Long
 )
+
+/**
+ * Where a deleted list's reminders go: the default list, or failing that
+ * whichever list is left at the top. Null only when the list being deleted is
+ * the last one.
+ *
+ * Lives beside the entity because three places need the same answer -- the
+ * transaction that does the move, and the confirmation dialog that names the
+ * list beforehand -- and a second copy of the rule is a second copy to drift.
+ */
+fun fallbackListFor(
+    lists: List<ReminderListEntity>,
+    deleting: ReminderListEntity
+): ReminderListEntity? = lists
+    .filter { it.id != deleting.id }
+    .minWithOrNull(compareByDescending<ReminderListEntity> { it.isDefault }.thenBy { it.position })

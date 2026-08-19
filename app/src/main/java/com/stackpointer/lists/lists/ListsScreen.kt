@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.stackpointer.lists.data.entity.ReminderListEntity
+import com.stackpointer.lists.data.entity.fallbackListFor
 import com.stackpointer.lists.di.currentAppContainer
 import kotlin.math.roundToInt
 
@@ -172,10 +173,24 @@ fun ListsScreen(onBack: () -> Unit) {
     }
 
     pendingDelete?.let { list ->
+        // Named, not described: "they go back to your default list" means
+        // nothing to someone who has never thought about which list is default.
+        val restoresTo = fallbackListFor(lists, list)
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             title = { Text("Delete \"${list.name}\"?") },
-            text = { Text("Every reminder in this list will be deleted too.") },
+            text = {
+                Text(
+                    if (restoresTo != null) {
+                        "Its reminders move to the recycle bin, where you can " +
+                            "restore them. Restored reminders go to " +
+                            "\"${restoresTo.name}\"."
+                    } else {
+                        "This is your only list, so its reminders will be " +
+                            "deleted permanently. This can't be undone."
+                    }
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteList(list)

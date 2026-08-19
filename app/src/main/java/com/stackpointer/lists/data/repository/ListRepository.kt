@@ -26,15 +26,29 @@ class ListRepository(
         listDao.update(list.copy(name = name))
     }
 
-    suspend fun deleteList(list: ReminderListEntity) {
-        listDao.delete(list)
-        // ReminderEntity's foreign key cascades, so this hard-deletes every
-        // reminder in the list. Their alarms would otherwise stay registered
-        // and fire for rows that no longer exist.
+    /**
+     * Deletes the list and sweeps its reminders into the recycle bin, rather
+     * than destroying them.
+     *
+     * The foreign key cascades, so the obvious one-liner (`listDao.delete`)
+     * hard-deleted every reminder in the list -- and, through a second cascade,
+     * their completion history too -- while the bin two taps away promises that
+     * deleted reminders are kept. This was the only delete in the app with no
+     * way back, and the confirmation dialog didn't say so.
+     *
+     * Returns how many reminders were moved, or 0 if there was nowhere to move
+     * them.
+     */
+    suspend fun deleteList(list: ReminderListEntity): Int {
+        val moved = listDao.deleteMovingRemindersToBin(list, Instant.now().toEpochMilli())
+        // Alarms and geofences for the binned reminders would otherwise stay
+        // registered and fire for rows the user can no longer see.
         alarms.requestSync()
+        return moved
     }
 
     suspend fun reorder(lists: List<ReminderListEntity>) {
         listDao.updateAll(lists.mapIndexed { index, list -> list.copy(position = index) })
     }
 }
+

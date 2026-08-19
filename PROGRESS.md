@@ -9,7 +9,8 @@ S16) — every row on it does what it says — plus the privacy page, the real
 Roboto Flex font, and the "nudge me again" alert behaviour. Phase 10 (widgets,
 set A) is next.
 
-Two things are outstanding and neither is a regression:
+A post-Phase-9 bug hunt (2026-08-19) found and fixed two real defects — see
+**"Bug hunt"** below. Two things remain outstanding and neither is a regression:
 
 - **Phase 7 (places/geofencing) is not signed off** — geofencing cannot be
   proven on an emulator at all. See the device-test list immediately below.
@@ -39,6 +40,100 @@ all "cannot be proven on an emulator".
    verified; the camera path is verified only as far as launching the camera.
 5. **Cold-start time.** 9.2 s on a loaded emulator. Worth re-measuring on real
    hardware — it should be far quicker, and if it isn't, that's worth knowing.
+
+## 🔎 Bug hunt — 2026-08-19 (after Phase 9)
+
+Umang asked for a sweep for "any other bugs/issues/problems". Two real defects
+came out of it, both now fixed and verified; the rest of the sweep found the
+things it checked to be sound.
+
+### 1. Deleting a list destroyed its reminders — ✅ FIXED 2026-08-19
+
+`ReminderEntity`'s foreign key is `onDelete = CASCADE`, so `listDao.delete(list)`
+hard-deleted every reminder in the list, and — through a second cascade on
+`CompletionEntity` — their completion history too. Meanwhile the recycle bin two
+taps away promises "Deleted reminders are kept for 30 days on this phone".
+
+**This was the only delete in the app with no way back, and the confirmation
+dialog didn't say so** — it read "Every reminder in this list will be deleted
+too", which a user reasonably reads as the same "deleted" the bin can undo.
+Confirmed by deleting a list holding "Review pull requests" and finding it
+absent from the bin afterwards.
+
+Fixed by moving the reminders instead of destroying them:
+
+- `ReminderListDao.deleteMovingRemindersToBin` reassigns the list's reminders to
+  a fallback list and stamps `deletedAt`, then deletes the list row — one
+  `@Transaction`, because the cascade fires the instant the list row goes.
+- `COALESCE(deletedAt, :deletedAt)` leaves an **already-binned** reminder's
+  timestamp alone. Without it, a row 29 days into the bin would earn another 30
+  just because the list around it was deleted.
+- `fallbackListFor` (in `ReminderListEntity.kt`) picks the default list, or the
+  topmost one if nothing is marked default. It is resolved **inside** the
+  transaction — chosen outside and passed in, the destination could itself have
+  been deleted by the time the UPDATE ran, and the foreign key would reject the
+  write. Four unit tests pin the rule down.
+- The dialog now names the destination: *"Its reminders move to the recycle bin,
+  where you can restore them. Restored reminders go to "Personal"."* Named, not
+  described — "your default list" means nothing to someone who has never thought
+  about which list is default.
+- `alarms.requestSync()` still runs, so alarms, geofences and any live
+  notification for the binned reminders are cleared.
+
+If the *last* list is deleted there is nowhere for a restored reminder to land,
+so the cascade is allowed to have them and the dialog says plainly that this
+can't be undone. The UI can't reach that state — the default list has no delete
+button — but the database no longer depends on the UI for it.
+
+### 2. `RescheduleAlarmsWorker` failed silently — ✅ FIXED 2026-08-19
+
+`catch (e: Exception) { Result.retry() }` — the only exception handler in the
+app that swallowed without logging. This is the one thing that puts the whole
+alarm schedule back after a reboot, so a failure here presents to the user as
+"my reminders stopped firing" with nothing anywhere to say why.
+
+Now logs the exception and the attempt number. It still retries rather than
+giving up: after a reboot, giving up means no reminder fires until the app is
+next opened. A first cut capped the retries; that was wrong and the code review
+caught it — the retries are already bounded in practice, because WorkManager
+caps its backoff at five hours and `BootReceiver` enqueues this as unique work
+with `REPLACE`, so the next boot or clock change discards a job stuck here.
+
+**Verified by fault injection**, not by reading: a temporary `error(...)` at the
+top of `doWork` produced `E RescheduleAlarms: Alarm/geofence resync failed on
+attempt 1` with a full stack trace and a `RETRY` result; with the cap
+temporarily set to 2 it also proved the give-up branch fired at exactly the
+right attempt (that branch has since been removed per the review). The fault was
+reverted and the clean build confirmed back to `Worker result SUCCESS`.
+
+### Checked and found sound
+
+No defect in any of these — recorded so a later session doesn't re-audit them:
+
+- **The repeat engine.** Completing a weekly reminder rolled Aug 19 → Aug 26,
+  logged "Wed, 19 Aug · 7 hours late" to History and cleared the overdue badge.
+- **Search injection.** Typing `%` returns "0 results", not the whole table —
+  `escapeForLike` + `ESCAPE ''` working.
+- **Activity recreation.** With "Don't keep activities" on, a half-typed capture
+  draft survived being backgrounded and restored intact, no crash.
+- **The default list can't be deleted**, so there's no way to strand yourself
+  with zero lists.
+- Checklist saves are `@Transaction`; every custom top bar has its status-bar
+  padding; `RescheduleAlarmsWorker` was the only silent `catch` in the codebase
+  (`CaptureParser`'s fallback to the raw title is deliberate).
+
+### The three ANRs — investigated, not a defect
+
+"Lists isn't responding" appeared three times during the sweep. All three were
+`No response to onStartJob` against WorkManager's `SystemJobService` — the
+background job, not the UI — and correlated with a pending job existing at cold
+start (after a reinstall, or a rotation-triggered restart) on a machine that was
+simultaneously running Gradle. Three deliberate cold starts afterwards produced
+**zero** ANRs at 3.2–4.8 s. The reports show 84% kernel time and heavy page
+faulting: a cold-starting process on a thrashing emulator, with the job's
+ten-second window expiring behind it. **Worth re-checking on real hardware** —
+cold-start time is already item 5 on the device-test list — but there is no code
+defect to fix here.
 
 ## 🔴 Outstanding bugs — fix these before starting a new phase
 

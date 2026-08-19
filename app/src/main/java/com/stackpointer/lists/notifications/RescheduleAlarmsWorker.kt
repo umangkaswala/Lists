@@ -1,6 +1,7 @@
 package com.stackpointer.lists.notifications
 
 import android.content.Context
+import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.stackpointer.lists.ListsApplication
@@ -33,6 +34,18 @@ class RescheduleAlarmsWorker(
             container.geofenceRegistrar.requestSync()
             Result.success()
         } catch (e: Exception) {
+            // Logged because this is the one place alarms come back from after a
+            // reboot: if it fails silently the symptom is "my reminders stopped
+            // firing" with nothing anywhere to say why.
+            Log.e(TAG, "Alarm/geofence resync failed on attempt ${runAttemptCount + 1}", e)
+            // Retried rather than failed, deliberately. After a reboot this is
+            // the only thing that puts the schedule back until the app is next
+            // opened, so giving up means no reminders fire at all in the
+            // meantime -- much worse than retrying something that may yet
+            // succeed. The retries are cheap and already bounded in practice:
+            // WorkManager caps its exponential backoff at five hours, and
+            // BootReceiver enqueues this as unique work with REPLACE, so the
+            // next boot or clock change discards a job still stuck here.
             Result.retry()
         }
     }
@@ -55,5 +68,6 @@ class RescheduleAlarmsWorker(
 
     companion object {
         const val KEY_CATCH_UP = "catchUp"
+        private const val TAG = "RescheduleAlarms"
     }
 }
