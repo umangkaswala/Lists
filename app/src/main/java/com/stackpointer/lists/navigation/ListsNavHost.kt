@@ -30,6 +30,9 @@ import com.stackpointer.lists.completed.CompletedScreen
 import com.stackpointer.lists.onboarding.OnboardingRoute
 import com.stackpointer.lists.places.PlacesScreen
 import com.stackpointer.lists.search.SearchScreen
+import com.stackpointer.lists.settings.PrivacyScreen
+import com.stackpointer.lists.settings.QuickTimesScreen
+import com.stackpointer.lists.settings.SettingsScreen
 import com.stackpointer.lists.today.TodayScreen
 import kotlinx.coroutines.flow.first
 
@@ -42,6 +45,9 @@ object ListsDestinations {
     const val COMPLETED = "completed"
     const val RECYCLE_BIN = "recycle_bin"
     const val PLACES = "places"
+    const val SETTINGS = "settings"
+    const val SETTINGS_QUICK_TIMES = "settings/quick_times"
+    const val SETTINGS_PRIVACY = "settings/privacy"
     const val REMINDER_DETAIL = "reminder/{reminderId}"
 
     fun reminderDetail(reminderId: Long) = "reminder/$reminderId"
@@ -111,8 +117,27 @@ fun ListsNavHost(
                     onOpenToday = { navController.navigate(ListsDestinations.TODAY) },
                     onOpenCompleted = { navController.navigate(ListsDestinations.COMPLETED) },
                     onOpenRecycleBin = { navController.navigate(ListsDestinations.RECYCLE_BIN) },
-                    onOpenPlaces = { navController.navigate(ListsDestinations.PLACES) }
+                    onOpenPlaces = { navController.navigate(ListsDestinations.PLACES) },
+                    onOpenSettings = { navController.navigate(ListsDestinations.SETTINGS) }
                 )
+            }
+            composable(ListsDestinations.SETTINGS) {
+                SettingsScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenQuickTimes = {
+                        navController.navigate(ListsDestinations.SETTINGS_QUICK_TIMES)
+                    },
+                    // The same Places screen the overflow menu reaches, rather
+                    // than a second, lesser copy of it inside Settings.
+                    onOpenPlaces = { navController.navigate(ListsDestinations.PLACES) },
+                    onOpenPrivacy = { navController.navigate(ListsDestinations.SETTINGS_PRIVACY) }
+                )
+            }
+            composable(ListsDestinations.SETTINGS_QUICK_TIMES) {
+                QuickTimesScreen(onBack = { navController.popBackStack() })
+            }
+            composable(ListsDestinations.SETTINGS_PRIVACY) {
+                PrivacyScreen(onBack = { navController.popBackStack() })
             }
             composable(ListsDestinations.COMPLETED) {
                 CompletedScreen(

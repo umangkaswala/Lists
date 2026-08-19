@@ -65,6 +65,9 @@
             android:name=".notifications.ReminderActionReceiver"
             android:exported="false" />
         <receiver
+            android:name=".notifications.ReminderNudgeReceiver"
+            android:exported="false" />
+        <receiver
             android:name=".places.GeofenceReceiver"
             android:exported="false" />
 

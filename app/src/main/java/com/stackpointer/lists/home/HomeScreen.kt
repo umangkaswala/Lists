@@ -40,6 +40,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
@@ -79,6 +80,7 @@ fun HomeScreen(
     onOpenCompleted: () -> Unit,
     onOpenRecycleBin: () -> Unit,
     onOpenPlaces: () -> Unit,
+    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val container = currentAppContainer()
@@ -118,7 +120,8 @@ fun HomeScreen(
                         onOpenSearch = onOpenSearch,
                         onOpenCompleted = onOpenCompleted,
                         onOpenRecycleBin = onOpenRecycleBin,
-                        onOpenPlaces = onOpenPlaces
+                        onOpenPlaces = onOpenPlaces,
+                        onOpenSettings = onOpenSettings
                     )
                     AlertPermissionBanner(modifier = Modifier.padding(top = 12.dp))
                 }
@@ -196,7 +199,8 @@ private fun SearchBarRow(
     onOpenSearch: () -> Unit,
     onOpenCompleted: () -> Unit,
     onOpenRecycleBin: () -> Unit,
-    onOpenPlaces: () -> Unit
+    onOpenPlaces: () -> Unit,
+    onOpenSettings: () -> Unit
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     Surface(
@@ -263,6 +267,14 @@ private fun SearchBarRow(
                         onClick = {
                             menuOpen = false
                             onOpenRecycleBin()
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Settings") },
+                        leadingIcon = { Icon(Icons.Rounded.Settings, contentDescription = null) },
+                        onClick = {
+                            menuOpen = false
+                            onOpenSettings()
                         }
                     )
                 }

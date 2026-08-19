@@ -2,6 +2,7 @@ package com.stackpointer.lists
 
 import android.app.Application
 import com.stackpointer.lists.notifications.NotificationChannels
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 class ListsApplication : Application() {
@@ -30,7 +31,9 @@ class ListsApplication : Application() {
         // overdue for deletion before this has had a chance to run. A
         // WorkManager job would buy nothing but a second thing to get wrong.
         container.applicationScope.launch {
-            container.reminderRepository.purgeExpiredBin()
+            container.reminderRepository.purgeExpiredBin(
+                container.settingsStore.settings.first().binRetentionDays.toLong()
+            )
             // Attachment files aren't in the database, so nothing removes them
             // when a reminder is deleted for good. Without this sweep every
             // photo ever attached would stay on the phone forever.

@@ -29,6 +29,7 @@ object ReminderNotifier {
 
     private val timeFormatter = DateTimeFormatter.ofPattern("h:mm a", Locale.ENGLISH)
 
+    /** Returns whether a notification was actually posted. */
     fun show(
         context: Context,
         reminder: ReminderEntity,
@@ -39,7 +40,7 @@ object ReminderNotifier {
          * Work") rather than a due time it doesn't have.
          */
         overrideSubtitle: String? = null
-    ) {
+    ): Boolean {
         NotificationChannels.ensure(context)
 
         // Posting without POST_NOTIFICATIONS throws on some OEM builds rather
@@ -51,7 +52,7 @@ object ReminderNotifier {
             ) != PackageManager.PERMISSION_GRANTED &&
             android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
         ) {
-            return
+            return false
         }
 
         val text = overrideSubtitle ?: subtitle(reminder, listName)
@@ -82,6 +83,7 @@ object ReminderNotifier {
             .build()
 
         NotificationManagerCompat.from(context).notify(notificationId(reminder.id), notification)
+        return true
     }
 
     fun cancel(context: Context, reminderId: Long) {

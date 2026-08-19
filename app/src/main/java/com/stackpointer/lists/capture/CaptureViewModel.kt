@@ -3,6 +3,7 @@ package com.stackpointer.lists.capture
 import com.stackpointer.lists.data.entity.ReminderListEntity
 import com.stackpointer.lists.data.repository.ChecklistItemDraft
 import com.stackpointer.lists.data.entity.PlaceEntity
+import com.stackpointer.lists.data.prefs.SettingsStore
 import com.stackpointer.lists.data.repository.AttachmentRepository
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
@@ -149,6 +150,7 @@ class CaptureViewModel(
     private val checklistRepository: ChecklistRepository,
     private val placeRepository: PlaceRepository,
     private val attachmentRepository: AttachmentRepository,
+    private val settingsStore: SettingsStore,
     private val scope: CoroutineScope,
     /**
      * For writes that must survive the sheet closing. [scope] is the sheet's
@@ -191,8 +193,19 @@ class CaptureViewModel(
      */
     private var modeBeforeRepeat: CaptureMode = CaptureMode.WHEN
 
+    /**
+     * Settings S16: "Read dates and places from my text". Read once, in `init`,
+     * rather than observed: a sheet cannot outlive a trip to Settings, and a
+     * value that changed mid-typing would strip words out of a title the user
+     * was half-way through.
+     *
+     * Declared above `init` for the same reason as [modeBeforeRepeat].
+     */
+    private var parseTypedText: Boolean = true
+
     init {
         scope.launch {
+            parseTypedText = settingsStore.settings.first().parseTypedText
             val lists = listRepository.observeLists().first()
             val defaultListId = lists.find { it.isDefault }?.id ?: lists.firstOrNull()?.id
             val places = placeRepository.observePlaces().first()
@@ -271,6 +284,20 @@ class CaptureViewModel(
 
     fun updateTitle(text: String) {
         val state = _uiState.value
+
+        // Parsing turned off in Settings. The title is then taken exactly as
+        // typed — but "Add to Today"'s prefilled date still applies, because
+        // that came from the button the user pressed, not from their words.
+        if (!parseTypedText) {
+            _uiState.value = state.copy(
+                title = text,
+                cleanedTitle = text,
+                dueAt = if (dueOverridden) state.dueAt else state.dueAt ?: defaultDueAt,
+                parsedFromText = false
+            )
+            return
+        }
+
         if (dueOverridden && repeatOverridden) {
             _uiState.value = state.copy(title = text, cleanedTitle = text)
             return

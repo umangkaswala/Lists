@@ -41,9 +41,11 @@ object AlarmPlanner {
     /**
      * An all-day reminder stores whatever instant it was created at, which is
      * meaningless as an alert time — notifying at 00:00 would wake people up.
-     * 09:00 local is the assumption; Phase 9 should make it a setting.
+     * 09:00 local is the default; Settings S16's "All-day reminders arrive at"
+     * row overrides it, which is why every function here takes it as a
+     * parameter rather than reading a constant.
      */
-    val ALL_DAY_ALERT_TIME: LocalTime = LocalTime.of(9, 0)
+    val DEFAULT_ALL_DAY_ALERT_TIME: LocalTime = LocalTime.of(9, 0)
 
     /**
      * How long after its due time a reminder is still worth alerting about
@@ -56,11 +58,12 @@ object AlarmPlanner {
         reminders: List<ReminderEntity>,
         nowMillis: Long,
         zone: ZoneId,
-        max: Int = MAX_ALARMS
+        max: Int = MAX_ALARMS,
+        allDayAlertTime: LocalTime = DEFAULT_ALL_DAY_ALERT_TIME
     ): AlarmPlan {
         val due = reminders
             .mapNotNull { reminder ->
-                triggerAtFor(reminder, zone)?.let { ScheduledAlarm(reminder.id, it) }
+                triggerAtFor(reminder, zone, allDayAlertTime)?.let { ScheduledAlarm(reminder.id, it) }
             }
             // Past occurrences are never scheduled: AlarmManager would fire
             // them immediately, so every app launch would replay old alerts.
@@ -88,16 +91,21 @@ object AlarmPlanner {
         reminders: List<ReminderEntity>,
         nowMillis: Long,
         zone: ZoneId,
-        windowMillis: Long = CATCH_UP_WINDOW_MILLIS
+        windowMillis: Long = CATCH_UP_WINDOW_MILLIS,
+        allDayAlertTime: LocalTime = DEFAULT_ALL_DAY_ALERT_TIME
     ): List<ScheduledAlarm> = reminders
         .mapNotNull { reminder ->
-            triggerAtFor(reminder, zone)?.let { ScheduledAlarm(reminder.id, it) }
+            triggerAtFor(reminder, zone, allDayAlertTime)?.let { ScheduledAlarm(reminder.id, it) }
         }
         .filter { it.triggerAtMillis in (nowMillis - windowMillis)..nowMillis }
         .sortedBy { it.triggerAtMillis }
 
     /** Null when this reminder should never alert at all. */
-    fun triggerAtFor(reminder: ReminderEntity, zone: ZoneId): Long? {
+    fun triggerAtFor(
+        reminder: ReminderEntity,
+        zone: ZoneId,
+        allDayAlertTime: LocalTime = DEFAULT_ALL_DAY_ALERT_TIME
+    ): Long? {
         if (reminder.isCompleted) return null
         if (reminder.deletedAt != null) return null
         val dueAt = reminder.dueAt ?: return null
@@ -106,7 +114,7 @@ object AlarmPlanner {
             Instant.ofEpochMilli(dueAt)
                 .atZone(zone)
                 .toLocalDate()
-                .atTime(ALL_DAY_ALERT_TIME)
+                .atTime(allDayAlertTime)
                 .atZone(zone)
                 .toInstant()
                 .toEpochMilli()

@@ -4,6 +4,7 @@ import android.content.Context
 import com.stackpointer.lists.data.db.ListsDatabase
 import com.stackpointer.lists.data.prefs.OnboardingStore
 import com.stackpointer.lists.data.prefs.SearchHistoryStore
+import com.stackpointer.lists.data.prefs.SettingsStore
 import com.stackpointer.lists.data.repository.AttachmentRepository
 import com.stackpointer.lists.data.repository.ChecklistRepository
 import com.stackpointer.lists.data.repository.ListRepository
@@ -13,6 +14,7 @@ import com.stackpointer.lists.data.repository.ReminderSyncFanOut
 import com.stackpointer.lists.notifications.AlarmScheduler
 import com.stackpointer.lists.notifications.ReminderAlerts
 import com.stackpointer.lists.places.GeofenceRegistrar
+import com.stackpointer.lists.settings.ReminderExporter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,10 +36,18 @@ class AppContainer(context: Context) {
     val placeDao = database.placeDao()
     val listDao = database.reminderListDao()
     val attachmentDao = database.attachmentDao()
+    val checklistItemDao = database.checklistItemDao()
 
-    val alarmScheduler = AlarmScheduler(appContext, reminderDao, applicationScope)
+    /**
+     * Declared above the things that read it. Property initialisers run in
+     * source order, so a store declared further down would still be null when
+     * the scheduler's constructor captured it.
+     */
+    val settingsStore = SettingsStore(appContext)
 
-    val reminderAlerts = ReminderAlerts(appContext, reminderDao, listDao)
+    val alarmScheduler = AlarmScheduler(appContext, reminderDao, settingsStore, applicationScope)
+
+    val reminderAlerts = ReminderAlerts(appContext, reminderDao, listDao, settingsStore)
 
     val geofenceRegistrar = GeofenceRegistrar(appContext, placeDao, applicationScope)
 
@@ -51,8 +61,16 @@ class AppContainer(context: Context) {
     val reminderRepository = ReminderRepository(reminderDao, completionDao, osStateSync)
     val listRepository = ListRepository(listDao, osStateSync)
     val placeRepository = PlaceRepository(placeDao, geofenceRegistrar)
-    val checklistRepository = ChecklistRepository(database.checklistItemDao())
+    val checklistRepository = ChecklistRepository(checklistItemDao)
     val attachmentRepository = AttachmentRepository(appContext, attachmentDao)
     val searchHistoryStore = SearchHistoryStore(appContext)
     val onboardingStore = OnboardingStore(appContext)
+
+    val reminderExporter = ReminderExporter(
+        appContext,
+        reminderDao,
+        listDao,
+        checklistItemDao,
+        placeDao
+    )
 }

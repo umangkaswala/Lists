@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.stackpointer.lists.ListsApplication
+import com.stackpointer.lists.data.prefs.allDayAlertTime
+import kotlinx.coroutines.flow.first
 import java.time.ZoneId
 
 /**
@@ -45,7 +47,8 @@ class RescheduleAlarmsWorker(
         val missed = AlarmPlanner.missedSince(
             reminders = reminders,
             nowMillis = System.currentTimeMillis(),
-            zone = ZoneId.systemDefault()
+            zone = ZoneId.systemDefault(),
+            allDayAlertTime = container.settingsStore.settings.first().allDayAlertTime
         )
         missed.forEach { container.reminderAlerts.notifyDue(it.reminderId) }
     }

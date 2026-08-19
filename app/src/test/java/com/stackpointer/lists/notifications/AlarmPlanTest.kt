@@ -149,6 +149,21 @@ class AlarmPlanTest {
     }
 
     @Test
+    fun `the all-day alert time is whatever Settings says, not a hard-coded 9am`() {
+        // Settings S16's "All-day reminders arrive at". A reminder that would
+        // be skipped as past under the 9am default must still be scheduled
+        // when the user moved the time later.
+        val plan = AlarmPlanner.compute(
+            reminders = listOf(reminder(1, at("2026-08-20T00:00"), isAllDay = true)),
+            nowMillis = at("2026-08-20T10:00"),
+            zone = zone,
+            allDayAlertTime = java.time.LocalTime.of(18, 0)
+        )
+
+        assertEquals(listOf(ScheduledAlarm(1L, at("2026-08-20T18:00"))), plan.alarms)
+    }
+
+    @Test
     fun `an all-day reminder due today is skipped once 9am has passed`() {
         val plan = AlarmPlanner.compute(
             reminders = listOf(reminder(1, at("2026-08-20T00:00"), isAllDay = true)),

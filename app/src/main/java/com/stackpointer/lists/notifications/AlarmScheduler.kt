@@ -10,9 +10,12 @@ import android.util.Log
 import androidx.core.app.AlarmManagerCompat
 import androidx.core.content.getSystemService
 import com.stackpointer.lists.data.dao.ReminderDao
+import com.stackpointer.lists.data.prefs.SettingsStore
+import com.stackpointer.lists.data.prefs.allDayAlertTime
 import com.stackpointer.lists.data.repository.ReminderAlarms
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -31,6 +34,7 @@ import java.time.ZoneId
 class AlarmScheduler(
     context: Context,
     private val reminderDao: ReminderDao,
+    private val settingsStore: SettingsStore,
     scope: CoroutineScope
 ) : ReminderAlarms {
 
@@ -67,6 +71,10 @@ class AlarmScheduler(
         val reminders = reminderDao.getAllForScheduling()
         val zone = ZoneId.systemDefault()
         val now = System.currentTimeMillis()
+        // Settings S16's "All-day reminders arrive at". Read per sync rather
+        // than cached, so changing it in Settings takes effect on the very next
+        // sync instead of the next process start.
+        val allDayAlertTime = settingsStore.settings.first().allDayAlertTime
 
         // Read the permission once per sync rather than once per alarm: it's a
         // binder round-trip, and a sync runs on every onResume.
@@ -85,13 +93,18 @@ class AlarmScheduler(
         // Completing, snoozing, deleting or re-timing one all end up here, which
         // saves every one of those call sites from having to remember.
         reminders.forEach { reminder ->
-            val triggerAt = AlarmPlanner.triggerAtFor(reminder, zone)
+            val triggerAt = AlarmPlanner.triggerAtFor(reminder, zone, allDayAlertTime)
             if (triggerAt == null || triggerAt > now) {
                 ReminderNotifier.cancel(appContext, reminder.id)
             }
         }
 
-        val plan = AlarmPlanner.compute(reminders = reminders, nowMillis = now, zone = zone)
+        val plan = AlarmPlanner.compute(
+            reminders = reminders,
+            nowMillis = now,
+            zone = zone,
+            allDayAlertTime = allDayAlertTime
+        )
 
         plan.alarms.forEach { schedule(alarmManager, it.reminderId, it.triggerAtMillis, exact) }
         plan.horizonAt?.let { schedule(alarmManager, HORIZON_ID, it, exact) }

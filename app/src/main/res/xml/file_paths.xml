@@ -8,4 +8,10 @@
     <files-path
         name="attachments"
         path="attachments/" />
+    <!-- Settings S16's "Export my reminders". The file is written to the cache
+         so the OS can reclaim it: once it has been handed to another app the
+         copy here is spent. -->
+    <cache-path
+        name="exports"
+        path="exports/" />
 </paths>

@@ -359,8 +359,8 @@ class ReminderRepository(
      * indexed DELETE, and it only touches rows whose own deletion is older than
      * the window.
      */
-    suspend fun purgeExpiredBin(): Int {
-        val cutoff = Instant.now().minus(Duration.ofDays(BIN_RETENTION_DAYS)).toEpochMilli()
+    suspend fun purgeExpiredBin(retentionDays: Long = DEFAULT_BIN_RETENTION_DAYS.toLong()): Int {
+        val cutoff = Instant.now().minus(Duration.ofDays(retentionDays)).toEpochMilli()
         val purged = reminderDao.purgeDeletedBefore(cutoff)
         if (purged > 0) alarms.requestSync()
         return purged
@@ -373,5 +373,11 @@ class ReminderRepository(
  */
 data class DeleteAllCompletedResult(val binned: Int, val historyCleared: Int)
 
-/** How long a deleted reminder stays recoverable. Stated on the bin screen. */
-const val BIN_RETENTION_DAYS: Long = 30
+/**
+ * How long a deleted reminder stays recoverable, before Settings S16's "Keep
+ * deleted items" row overrides it. Stated on the bin screen.
+ */
+const val DEFAULT_BIN_RETENTION_DAYS: Int = 30
+
+/** The values the "Keep deleted items" picker offers. */
+val BIN_RETENTION_CHOICES: List<Int> = listOf(7, 14, 30, 60)

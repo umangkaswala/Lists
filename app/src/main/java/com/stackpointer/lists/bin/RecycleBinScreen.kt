@@ -53,7 +53,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.stackpointer.lists.data.repository.BIN_RETENTION_DAYS
 import com.stackpointer.lists.di.currentAppContainer
 import com.stackpointer.lists.ui.selection.SelectionActionBar
 import com.stackpointer.lists.ui.selection.SelectionTopBar
@@ -65,7 +64,7 @@ import kotlinx.coroutines.launch
 fun RecycleBinScreen(onBack: () -> Unit) {
     val container = currentAppContainer()
     val viewModel: RecycleBinViewModel = viewModel(
-        factory = RecycleBinViewModel.Factory(container.reminderRepository)
+        factory = RecycleBinViewModel.Factory(container.reminderRepository, container.settingsStore)
     )
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -132,10 +131,10 @@ fun RecycleBinScreen(onBack: () -> Unit) {
                         fontWeight = FontWeight.Bold
                     )
                 }
-                item { RetentionNotice() }
+                item { RetentionNotice(state.retentionDays) }
 
                 if (state.isEmpty) {
-                    item { BinEmptyState() }
+                    item { BinEmptyState(state.retentionDays) }
                 }
 
                 itemsIndexed(state.entries, key = { _, entry -> entry.id }) { index, entry ->
@@ -207,7 +206,7 @@ private fun binPlural(count: Int): String =
 private fun Set<Long>.toggle(id: Long): Set<Long> = if (id in this) this - id else this + id
 
 @Composable
-private fun RetentionNotice() {
+private fun RetentionNotice(retentionDays: Int) {
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(ListsCorner.listGroupOuter),
@@ -228,7 +227,7 @@ private fun RetentionNotice() {
             // so the sentence says what actually happens instead of promising
             // a sync that doesn't exist.
             Text(
-                text = "Deleted reminders are kept for $BIN_RETENTION_DAYS days on this " +
+                text = "Deleted reminders are kept for $retentionDays days on this " +
                     "phone, then removed for good.",
                 fontSize = 14.sp,
                 lineHeight = 20.sp,
@@ -295,7 +294,7 @@ private fun BinRow(
 }
 
 @Composable
-private fun BinEmptyState() {
+private fun BinEmptyState(retentionDays: Int) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth().padding(top = 48.dp)
@@ -307,7 +306,7 @@ private fun BinEmptyState() {
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            text = "Deleted reminders wait here for $BIN_RETENTION_DAYS days before " +
+            text = "Deleted reminders wait here for $retentionDays days before " +
                 "they are gone for good.",
             fontSize = 16.sp,
             lineHeight = 24.sp,

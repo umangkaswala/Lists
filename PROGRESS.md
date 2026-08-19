@@ -4,15 +4,18 @@
 > to do next. Full phase descriptions are in [PLAN.md](PLAN.md); working
 > conventions and environment setup are in [CLAUDE.md](CLAUDE.md).
 
-**Current status: Phases 0-8 built. Phase 8 was followed by a full
-_dead-control audit_ (below) which found nine controls that did nothing, all now
-working. Nothing is known to be broken. Phase 9 (Settings & onboarding polish)
-is next, and it owes the privacy copy for dictation that Phase 8 deliberately
-left to it.
+**Current status: Phases 0-9 built. Phase 9 added the Settings screen (design
+S16) — every row on it does what it says — plus the privacy page, the real
+Roboto Flex font, and the "nudge me again" alert behaviour. Phase 10 (widgets,
+set A) is next.
 
-Phase 7 (places/geofencing) is the one piece that is NOT signed off: geofencing
-cannot be proven on an emulator at all. See the device-test list immediately
-below.**
+Two things are outstanding and neither is a regression:
+
+- **Phase 7 (places/geofencing) is not signed off** — geofencing cannot be
+  proven on an emulator at all. See the device-test list immediately below.
+- **The When editor's "Early alert" row is still a dead control**, found while
+  verifying Phase 9 and deliberately left alone. See the end of the Phase 9
+  entry for why, and for the recommendation.**
 
 ## 🔵 Device tests Umang still owes — keep this list
 
@@ -41,11 +44,19 @@ all "cannot be proven on an emulator".
 
 These are confirmed defects against the design, not ideas. Do them first.
 
-*(None open right now. Bug 1 below is fixed — kept as a record of what was
-wrong and why it wasn't caught, because the "why" still applies to the
-Phase 1–4 screens that have not been re-checked yet.)*
+**1. The When editor's "Early alert" row does nothing.** Found on 2026-08-19
+while verifying Phase 9. It shows "None" and a chevron and taps to a "coming
+later" message; it has been inert since Phase 2 and the dead-control audit
+missed it. Not fixed in Phase 9 on purpose — it needs a schema migration and a
+second alarm per reminder, which is real work on the alarm engine rather than a
+settings fix. Full reasoning and the recommendation are at the end of the
+Phase 9 entry.
 
-### 1. The When editor had no way to set a date or a time (design S07) — ✅ FIXED 2026-08-18
+*(Bug 2 below is fixed — kept as a record of what was wrong and why it wasn't
+caught, because the "why" still applies to the Phase 1–4 screens that have not
+been re-checked yet.)*
+
+### 2. The When editor had no way to set a date or a time (design S07) — ✅ FIXED 2026-08-18
 
 **Found by Umang on 2026-08-18, testing the Phase 5 build on his own phone.**
 He opened **When**, looked for a clock, and there wasn't one. His words: *"I
@@ -1363,21 +1374,268 @@ into the title → swipe the sheet away still discards, exactly as before.
 - **S06's "keyboard suggestion strip mirrors the parse"** is not built. The
   parsed chips already show the same information directly above the keyboard.
 
-## Phases 9–12 — ⬜ NOT STARTED
+## Phase 9 — Settings, appearance, privacy & Roboto Flex — ✅ DONE (2026-08-19)
+
+Design S16 built for real, plus the two things PLAN.md parked here: the privacy
+copy Phase 8 owed, and the actual Roboto Flex font deferred from Phase 0.
+
+Before this phase the app had **no Settings screen at all** — no route, no
+package. It is now reachable from Home's overflow, and every row on it does
+what it says.
+
+### What each row actually does
+
+**Alerts**
+
+- **Alert style** — reads the live channel ("Sound + vibrate" / "Sound only" /
+  "Vibrate only" / "Silent" / "Off") and opens **Android's own** channel
+  settings. See the decision below; this is not an in-app editor and can't be.
+- **All-day reminders arrive at** — a real time picker, default 9:00 am.
+  `AlarmPlanner.ALL_DAY_ALERT_TIME` was a constant with a `// Phase 9 should
+  make it a setting` note on it; it is now a parameter on every function that
+  needs it, with the old value as the default.
+- **Nudge me again if ignored** — new behaviour, see below.
+- **Dismiss on every device** — drawn *on* in the design, shipped **disabled**
+  with the copy "Needs an account. Lists keeps everything on this phone."
+
+**Capture**
+
+- **Read dates and places from my text** — turns the parser off. With it off,
+  the title is stored exactly as typed. "Add to Today"'s prefilled date still
+  applies, because that came from a button the user pressed rather than from
+  their words.
+- **Quick times** — its own sub-screen; the three When-editor chips.
+- **Saved places** — opens the existing Places screen, and its support line
+  lists the saved place names.
+
+**Appearance** — the three-segment Light/Dark/System control and
+**Colour from wallpaper** (Material You dynamic colour, Android 12+; the row
+says "Needs Android 12 or later" and is disabled below that). Both repaint the
+whole app live.
+
+**Data** — **Keep deleted items** (7/14/30/60 days) and **Export my reminders**.
+
+**About** — **Privacy** and **Version**. Not in the S16 mock-up: PLAN.md
+requires a privacy page and the design gives it nowhere to live. Wedging it
+into "Data" would have been wrong — that group is about the user's reminders,
+this is about the app.
+
+### The decision that mattered most: Alert style is not an in-app editor
+
+CLAUDE.md already records that **a notification channel is immutable once
+created** — importance, sound and vibration can never be changed by the app
+afterwards, only by the user. S16 draws Alert style as a row with a chevron,
+which reads like an in-app picker. Building one would have left exactly two
+options, both bad: a screen whose controls silently do nothing, or deleting and
+recreating the channel under a new id every time, throwing away every tweak the
+user had made in system Settings.
+
+So the row **shows the real state and opens the real switches**. The value line
+is read from the OS on every `ON_RESUME`, because the user changes it outside
+our process and we are never told. That reading is shared between Settings and
+the Capture sheet (`rememberAlertStyleSummary`) rather than written twice — the
+second copy is where the resume observer gets forgotten.
+
+This also settles the "notification alert style" question that has been sitting
+in the decisions-owed list since Phase 5: **there is nothing to decide**. The
+channel keeps IMPORTANCE_HIGH + default notification sound + vibrate, which is
+what the design specifies, and it is the user's to change from there.
+
+### "Nudge me again if ignored" — a deliberately separate mechanism
+
+This is new behaviour, not a toggle over something that existed.
+`ReminderNudge` has its own receiver and its own PendingIntent namespace
+(`lists://nudge/$id/$attempt`), and **`AlarmScheduler` was not touched**.
+
+That separation is the point. The scheduler's whole design is "cancel every
+alarm and re-derive them from the reminders table", and a nudge isn't derivable
+from the table at all — it depends on transient facts (an alert was posted; it
+is still sitting unanswered) that no column records. Folding it in would have
+meant either persisting notification state or making the planner impure, on the
+single highest-risk surface in the app.
+
+**Nothing cancels a pending nudge when the user deals with the reminder**, and
+that is on purpose. The receiver re-checks the world when it fires, which
+catches every way a reminder can be answered — Done, Snooze, tapping it,
+swiping it away, completing it in the app, deleting it — with one rule instead
+of six call sites that each have to remember. "Ignored" is defined as *the
+notification is still in the shade*, read from
+`NotificationManager.activeNotifications`. Cost: at most one wasted wake-up per
+reminder, the same trade `AlarmScheduler` already makes for stale alarms.
+
+**The copy says "about every 10 minutes", not "every 10 minutes"** as the
+design does. Measured on the emulator, Android gave the nudge alarm a
+**7½-minute window** — it is an inexact `setAndAllowWhileIdle`, on purpose:
+spending the exact-alarm budget to be punctual about a reminder the user is
+already ignoring is the wrong trade. But then the design's flat "every 10
+minutes" would be a small lie, so the word "about" is doing real work.
+
+Place-triggered alerts deliberately don't nudge. "You just left Work" repeated
+ten minutes and half a mile later is telling the user something that is no
+longer true.
+
+### Two settings that would have looked like they worked and quietly wouldn't
+
+Both found by driving the app, not by reading it:
+
+1. **Changing the all-day time left every existing alarm on the old time.**
+   The alarms had already been registered for 9:00; nothing re-derives them
+   until the app next resumes. Verified against `dumpsys alarm`: the reminder
+   was still pending at 09:00 after the setting said 10:00. `setAllDayAlert…`
+   now requests an alarm re-sync.
+2. **Shortening the retention window didn't delete anything** until the next
+   app start, so "keep for 7 days" with 30-day-old items in the bin was a
+   setting that wasn't true yet. It now purges immediately — and the dialog
+   says so outright, because this destroys data.
+
+The purge runs on `applicationScope`, not `viewModelScope`: choosing "7 days"
+and immediately pressing back would otherwise cancel the delete halfway. That
+is the scope-lifetime trap CLAUDE.md records from Phase 4, and it applies to
+one write on this screen.
+
+### Quick times are stored as rules, not as times
+
+"Tonight 7 pm" has to mean 7 pm whenever the sheet is opened, so what's saved
+is the *shape* of each chip — a relative duration, an evening time, a
+next-morning time — and the label is regenerated every time. A saved label
+would go stale the moment the time behind it changed.
+
+The rollover rules are now eight unit tests
+(`QuickTimePresetsTest`), including the one that actually matters: **every chip
+must be in the future at every hour of the day.** A chip that sets an instant
+already gone is never scheduled at all, so it silently does nothing — and the
+boundary case (exactly 19:00) is the easy one to get wrong.
+
+### Roboto Flex, bundled
+
+One 1.8 MB **variable** font file rather than five static cuts, with each
+weight (300/400/500/600/700) registered explicitly through `FontVariation`.
+Without the explicit registration Compose has only one outline and fakes the
+rest by smearing the glyphs — which is exactly what a "600" heading is meant to
+avoid. Bundled rather than fetched via downloadable Google Fonts, so the app
+never renders a frame in the wrong face and works with no Play Services at all.
+APK went 24.2 MB → 25.2 MB.
+
+`Typography` has no iterable form, so the family is applied to all fifteen
+styles by hand. A style missed there renders in the system font while
+everything around it doesn't — far harder to spot than a wholesale failure.
+
+### The privacy page
+
+Written as plain sentences about what this build actually does, not legal
+boilerplate — every claim is checkable against the code. It covers the
+dictation disclosure Phase 8 explicitly deferred here: **Lists never records
+audio and holds no microphone permission**, but the phone's speech app may
+still send what you say to Google, and `EXTRA_PREFER_OFFLINE` is a request
+rather than a guarantee. It says so, and says "if that matters to you, type
+instead of speaking". The formal Play-store policy is still Phase 12's job.
+
+### `/code-review high` — found 5, all fixed
+
+1. **The export ran entirely on the main thread** — an N+1 checklist query
+   loop, JSON serialisation and the file write, despite the KDoc claiming
+   otherwise. Now `withContext(Dispatchers.IO)`.
+2. **"Silent" was reported as "Sound + vibrate".** Below `IMPORTANCE_DEFAULT`
+   a channel keeps its sound URI but Android never plays it, so reading the URI
+   alone described a channel the user had explicitly silenced as noisy.
+3. **The quick-time chips rendered the *defaults* for the first frames.** Not
+   cosmetic: the chips are tappable, so someone who set "Soon" to 15 minutes
+   could press a chip labelled "In 1 hour" that really did set an hour. They
+   now render nothing until the stored settings have been read — no chip is
+   better than a wrong one you can press.
+4. **The Capture sheet's Alert style row never refreshed** after the user
+   changed it through that row's own link. Fixed by sharing the Settings
+   screen's resume-aware reader instead of having two copies.
+5. **A nudge was queued for a notification that was never posted.** Without
+   POST_NOTIFICATIONS the notifier returns early; `post()` reported success
+   anyway, so the device would wake up to re-post nothing. `show()` now returns
+   whether it posted.
+
+### Verified on the emulator
+
+Driven control by control, not just compiled:
+
+- **Dark** repainted the whole app live, and the status-bar icons flipped to
+  white — the emulator's system theme is light, so this also proved the
+  `SystemBarStyle` re-apply works when the user's choice disagrees with the OS.
+- **Colour from wallpaper** turned the entire app the wallpaper's blue and the
+  support line changed to "On — following your wallpaper"; turning it back off
+  restored the Lists palette.
+- **Quick times**: set "This evening" to 8:30 pm; the sub-screen's live preview
+  and then the **When editor's actual chip** both read "Tomorrow 8:30 pm"
+  (tomorrow, because the emulator clock was 11:54 pm — the rollover rule
+  working in the wild).
+- **All-day** picker opened on 9:00 am, set to 10:00, row re-read "10:00 am".
+- **Export** produced both files and handed them to the system share sheet.
+  The plain-text export was read back off the device and contains due dates,
+  repeat rules, places, notes, checklists and all-day flags; the JSON contains
+  the same with ISO instants.
+- **Nudge**: created a reminder due in two minutes, watched the notification
+  post, and confirmed against `dumpsys alarm` that a
+  `com.stackpointer.lists.REMINDER_NUDGE` alarm was registered for exactly
+  +10 minutes. When it fired, the notification's `airtimeCount` went 1 → 2 (it
+  really did alert again) and attempt 2 was queued for +10 more. The
+  notification was then swiped away and the second attempt confirmed to post
+  nothing — the "ignored" guard working.
+- **Alert style** opened Android's own Reminders-channel page with the real
+  switches on it. Setting the channel to **Silent** there and pressing back
+  changed the row to read "Silent"; setting it back to Default changed it to
+  "Sound + vibrate" again. That one round trip exercises both the resume-aware
+  re-read and the importance fix from the code review at once — the old code
+  would have said "Sound + vibrate" for a silenced channel and then never
+  updated anyway.
+- 107 unit tests pass (was 98).
+
+### One ANR seen, investigated, not a defect
+
+The emulator threw "Lists isn't responding" during the final reinstall. It was
+checked rather than waved away, and it is the **same pattern Phase 8 already
+recorded**: reason `No response to onStartJob` — i.e. WorkManager's boot/replace
+re-schedule job, fired by `MY_PACKAGE_REPLACED` eight seconds after the install.
+The ANR report shows system load **9.3**, 84% kernel time system-wide, `kswapd0`
+at 39% and 1105 major page faults in our own process against 6.5% user time.
+That is a cold-starting process being paged in on a thrashing machine, not app
+code blocking. The app relaunched cleanly straight afterwards (6.7 s cold start
+on the same loaded emulator) and everything above was then driven successfully.
+
+Written down again because a future session that sees it should not go hunting
+for a bug in the alarm code.
+
+### Found while verifying, deliberately NOT fixed — needs a decision
+
+**The When editor's "Early alert" row is still dead** — it shows "None" and a
+chevron and does nothing. The Phase 8 audit missed it; it has been inert since
+Phase 2. It is a genuine feature (design S07 lists it, and Samsung's Reminder
+has it): "tell me 15 minutes before as well".
+
+It was left alone rather than smuggled into this phase, because it is not a
+settings problem — it needs a schema migration, a second alarm per reminder in
+`AlarmPlanner` (which currently keys one alarm per reminder id), and
+notification copy that distinguishes "in 15 minutes" from "now". That is real
+work on the highest-risk subsystem in the app, and doing it in the last hour of
+a large phase is how the alarm engine gets broken.
+
+**Recommendation: give it its own slot before Phase 12**, alongside the Today
+filter/overflow work already queued. Umang's call.
+
+---
+
+## Phases 10–12 — ⬜ NOT STARTED
 
 See PLAN.md for full descriptions of each.
 
 ## Open product/technical TODOs carried from PLAN.md
 
-- Recycle-bin retention length: defaulted to 30 days, not user-specified. Now
-  a real constant (`BIN_RETENTION_DAYS`) that the bin screen's own copy reads
-  from, so changing it changes what the app says.
+- ~~Recycle-bin retention length~~ — **settled in Phase 9.** It is now a user
+  setting (7/14/30/60 days, default 30), and the bin screen's own copy reads
+  from it.
 - Real app icon: still a placeholder.
 - Design S05's full-bleed map of all geofences: deferred in Phase 7, needs the
   Maps SDK and a billable API key, which PLAN.md deliberately avoided. Worth an
   explicit decision before Phase 12.
-- Voice recognition privacy disclosure wording: **now owed by Phase 9**. Phase 8
-  shipped dictation via `RecognizerIntent`, which needs no microphone permission
-  of our own but may still produce its text in Google's cloud rather than on the
-  device. The Settings copy has to say so.
+- ~~Voice recognition privacy disclosure wording~~ — **written in Phase 9**, on
+  Settings › About › Privacy. It says outright that Lists never records audio
+  and holds no microphone permission, but that the phone's own speech app may
+  send what you say to Google, and that `EXTRA_PREFER_OFFLINE` is a request
+  rather than a guarantee.
 - A full-screen photo viewer: attachments show as thumbnails only. Phase 12.

@@ -105,8 +105,12 @@ fun OnboardingScreen(
             Spacer(Modifier.height(16.dp))
 
             Text(
-                text = "You can change any of these later in Settings. Location is only " +
-                    "needed if you use place reminders.",
+                // "your phone's Settings", not "Settings": all three of these
+                // are granted and revoked by Android, not by anything Lists
+                // owns, and pointing at the app's own Settings screen would
+                // send people looking for switches that aren't there.
+                text = "You can change any of these later in your phone's Settings. " +
+                    "Location is only needed if you use place reminders.",
                 fontSize = 16.sp,
                 lineHeight = 24.sp,
                 letterSpacing = 0.5.sp,

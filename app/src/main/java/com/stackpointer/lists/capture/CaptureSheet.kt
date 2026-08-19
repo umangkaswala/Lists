@@ -91,6 +91,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.stackpointer.lists.data.repository.ChecklistItemDraft
 import com.stackpointer.lists.di.currentAppContainer
+import com.stackpointer.lists.notifications.NotificationChannels
+import com.stackpointer.lists.notifications.rememberAlertStyleSummary
 import com.stackpointer.lists.recurrence.rruleShortLabel
 import com.stackpointer.lists.repeat.RepeatEditor
 import kotlinx.coroutines.launch
@@ -121,6 +123,7 @@ fun CaptureSheetContent(
             checklistRepository = container.checklistRepository,
             placeRepository = container.placeRepository,
             attachmentRepository = container.attachmentRepository,
+            settingsStore = container.settingsStore,
             scope = scope,
             appScope = container.applicationScope
         )
@@ -810,11 +813,20 @@ private fun WhenContent(
             value = "None",
             onClick = { onStub("Early alerts") }
         )
+        // Reads the live channel and opens the system's own switches. It can't
+        // be an in-app editor: a notification channel is immutable once
+        // created, so the only place these can really be changed is Android's
+        // settings. Same row, same reasoning, as Settings S16's Alert style.
+        val context = LocalContext.current
         PropertyRow(
             icon = Icons.Rounded.VolumeUp,
             label = "Alert style",
-            value = "Sound + vibrate",
-            onClick = { onStub("Alert style") }
+            value = rememberAlertStyleSummary(),
+            onClick = {
+                runCatching {
+                    context.startActivity(NotificationChannels.channelSettingsIntent(context))
+                }.onFailure { onStub("Alert style") }
+            }
         )
     }
 
